@@ -1,0 +1,19 @@
+{
+  "name": "OneBase-admin-ui",
+  "private": true,
+  "scripts": {
+    "dev": "bun build src/main.tsx --outdir dist --watch --sourcemap=inline",
+    "build": "bun build src/main.tsx --outdir dist --minify"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.23.0",
+    "lucide-react": "^0.383.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "bun-types": "latest"
+  }
+}
