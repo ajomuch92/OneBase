@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Zap } from 'lucide-react'
+import useInputHandler from 'use-input-handler'
 import { api } from '../api.ts'
 import { Input, Button, ErrorMessage } from '../components/ui.tsx'
 
 export function Login() {
   const navigate = useNavigate()
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [error,    setError]    = useState<string | null>(null)
-  const [loading,  setLoading]  = useState(false)
+  const [email,    handleEmail]    = useInputHandler<string>('')
+  const [password, handlePassword] = useInputHandler<string>('')
+  const [error,    setError]       = useState<string | null>(null)
+  const [loading,  setLoading]     = useState(false)
 
   async function handleLogin() {
     if (!email || !password) { setError('Email and password are required'); return }
@@ -33,6 +34,7 @@ export function Login() {
       alignItems:     'center',
       justifyContent: 'center',
       background:     '#0f1117',
+      padding:        '0 16px',
     }}>
       <div style={{
         background:   '#1a1d27',
@@ -41,7 +43,6 @@ export function Login() {
         padding:      40,
         width:        '100%',
         maxWidth:     380,
-        margin:       '0 16px',
       }}>
         {/* Logo */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -62,7 +63,7 @@ export function Login() {
               type="email"
               placeholder="admin@example.com"
               value={email}
-              onChange={e => setEmail(e.target.value)}
+              onChange={handleEmail}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
               autoFocus
             />
@@ -76,7 +77,7 @@ export function Login() {
               type="password"
               placeholder="••••••••"
               value={password}
-              onChange={e => setPassword(e.target.value)}
+              onChange={handlePassword}
               onKeyDown={e => e.key === 'Enter' && handleLogin()}
             />
           </div>
