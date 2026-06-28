@@ -14,10 +14,10 @@
     "migrate": "bun run src/cli/index.ts migrate"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "drizzle-orm": "^0.30.0",
     "hono": "^4.2.0",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^2.4.3",
     "zod": "^3.22.4"
   },
   "devDependencies": {
