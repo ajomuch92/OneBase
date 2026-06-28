@@ -8,6 +8,7 @@
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "react-router-dom": "^6.23.0",
+        "use-input-handler": "^2.0.1",
       },
       "devDependencies": {
         "@types/react": "^18.3.1",
@@ -48,5 +49,7 @@
     "scheduler": ["scheduler@0.23.2", "", { "dependencies": { "loose-envify": "^1.1.0" } }, "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ=="],
 
     "undici-types": ["undici-types@8.3.0", "", {}, "sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ=="],
+
+    "use-input-handler": ["use-input-handler@2.0.1", "", {}, "sha512-f0gNjbppB6kUCCdCBQgiDQ+/OMXDru1xhIvvRSsCVddA2IMJ8Pv3UitzTXspR80XBesxgO8D2jQYc7YRIZI+lA=="],
   }
 }
