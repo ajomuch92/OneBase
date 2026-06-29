@@ -4,7 +4,7 @@ import { parseArgs } from 'util'
 const { values, positionals } = parseArgs({
   args: Bun.argv.slice(2),
   options: {
-    port:   { type: 'string', short: 'p', default: '3001' },
+    port:   { type: 'string', short: 'p', default: '3000' },
     host:   { type: 'string', default: '0.0.0.0' },
     db:     { type: 'string', default: './onebase.db' },
     schema: { type: 'string', default: './schema' },
@@ -81,6 +81,7 @@ if (command === 'start') {
   const { syncCollections } = await import('../core/collections.ts')
   const { pluginRunner }    = await import('../plugins/loader.ts')
   const { createApp }       = await import('../core/router.ts')
+  const { realtimeService } = await import('../core/realtime.ts')
   const { initUploads }     = await import('../core/uploads.ts')
 
   initDB(values.db)
@@ -94,11 +95,21 @@ if (command === 'start') {
   const { prebuildAdminBundle } = await import('../api/admin/index.ts')
   await prebuildAdminBundle()
 
-  const port   = Number(values.port)
+  const port = Number(values.port)
+  const app  = createApp()
+
   const server = Bun.serve({
-    port, hostname: values.host,
-    fetch: createApp().fetch,
-    websocket: { message() {}, open() {}, close() {} },
+    port,
+    hostname: values.host,
+    fetch(req) {
+      // Inject the server instance so the /realtime route can call server.upgrade()
+      return app.fetch(req, { server })
+    },
+    websocket: {
+      open(ws)              { realtimeService.onOpen(ws) },
+      message(ws, msg)      { realtimeService.onMessage(ws, msg as string) },
+      close(ws)             { realtimeService.onClose(ws) },
+    },
   })
 
   console.log(`

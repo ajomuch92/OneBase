@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { extractAuth, requireAuth } from './auth.ts'
-import { getAllCollectionDefs, getCollection, listStoredCollections } from './collections.ts'
+import { getCollection, listStoredCollections } from './collections.ts'
 import { realtimeService } from './realtime.ts'
 import { permissionEngine } from './permissions.ts'
 import { uploadService } from './uploads.ts'
@@ -12,7 +12,7 @@ import { authRouter } from '../api/rest.ts'
 import { adminRouter } from '../api/admin/index.ts'
 
 export function createApp() {
-  const app = new Hono()
+  const app = new Hono<{ Variables: { server: any } }>()
 
   app.use('*', logger())
   app.use('*', secureHeaders())
@@ -28,19 +28,28 @@ export function createApp() {
     return uploadService.serveFile(path)
   })
 
+  // WebSocket upgrade — needs access to the Bun server instance
+  // which is injected via middleware after server starts
+  app.get('/realtime', async (c) => {
+    const server = c.get('server')
+    const auth   = await extractAuth(c.req.raw)
+    const upgraded = realtimeService.upgrade(c.req.raw, server, auth)
+    if (!upgraded) return c.text('WebSocket upgrade failed', 400)
+    // Bun handles the response after upgrade — return empty response
+    return new Response(null, { status: 101 })
+  })
+
   const api = new Hono()
   registerCollectionRoutes(api)
   app.route('/api', api)
 
-  app.get('/realtime', async (c) => {
-    const auth = await extractAuth(c.req.raw)
-    return realtimeService.handleUpgrade(c.req.raw, auth)
-  })
-
   app.notFound((c) => c.json({ error: 'Not found' }, 404))
   app.onError((err, c) => {
-    const status = err.message === 'Unauthorized' ? 401 : err.message === 'Forbidden' ? 403
-      : err.message.includes('not found') ? 404 : 400
+    const status =
+      err.message === 'Unauthorized'              ? 401
+      : err.message === 'Forbidden'               ? 403
+      : err.message.includes('not found')         ? 404
+      : 400
     return c.json({ error: err.message }, status)
   })
 
@@ -48,27 +57,19 @@ export function createApp() {
 }
 
 function registerCollectionRoutes(api: Hono) {
-  // Use stored collections (includes both code-defined and admin-created)
-  const getCollections = () => {
-    try { return listStoredCollections() } catch { return [] }
-  }
-
-  // Dynamic dispatch — resolve collection name at request time
   api.get('/:collection', async (c) => {
     const name = c.req.param('collection')
     const auth = await extractAuth(c.req.raw)
     await permissionEngine.assert(name, 'list', auth?.user ?? null)
-
     const qs     = c.req.query()
     const limit  = Math.min(Number(qs.limit ?? 50), 500)
     const offset = Number(qs.offset ?? 0)
-    const sort   = qs.sort  ?? 'created_at'
+    const sort   = qs.sort ?? 'created_at'
     const order  = (qs.order === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
     const filter: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(qs)) {
       if (!['limit', 'offset', 'sort', 'order'].includes(k)) filter[k] = v
     }
-
     const svc     = getCollection(name)
     const records = svc.list({ filter, sort, order, limit, offset })
     const total   = svc.count(filter)

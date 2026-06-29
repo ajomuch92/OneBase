@@ -20,7 +20,8 @@ export const uploadService = {
   async handleUpload(req: Request, opts: { collection?: string; recordId?: string; field?: string; userId?: string } = {}) {
     const formData = await req.formData()
     const files: UploadedFile[] = []
-    for (const [, value] of formData.entries()) {
+    for (const entry of formData.entries()) {
+      const value = entry[1] as File | string | null
       if (value instanceof File) files.push(await this.saveFile(value, opts))
     }
     if (!files.length) throw new Error('No files found in request')
