@@ -3,22 +3,25 @@
   "version": "0.1.0",
   "description": "Backend as a Service — TypeScript first, single binary",
   "module": "src/index.ts",
-  "bin": { "onebase": "./src/cli/index.ts" },
+  "bin": {
+    "onebase": "./src/cli/index.ts"
+  },
   "scripts": {
-    "dev":      "bun run --watch src/cli/index.ts start",
-    "build":    "bun build src/cli/index.ts --compile --outfile onebase",
+    "dev": "bun run --watch src/cli/index.ts start",
+    "build": "bun build src/cli/index.ts --compile --outfile onebase",
     "generate": "bun run src/cli/index.ts generate",
-    "migrate":  "bun run src/cli/index.ts migrate"
+    "migrate": "bun run src/cli/index.ts migrate"
   },
   "dependencies": {
-    "hono":         "^4.2.0",
+    "bcryptjs": "^2.4.3",
+    "complete-js-utils": "^1.1.2",
+    "hono": "^4.2.0",
     "jsonwebtoken": "^9.0.2",
-    "bcryptjs":     "^2.4.3",
-    "zod":          "^3.22.4"
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/jsonwebtoken": "^9.0.6",
-    "@types/bcryptjs":     "^2.4.6",
-    "bun-types":           "latest"
+    "@types/bcryptjs": "^2.4.6",
+    "bun-types": "latest"
   }
 }
