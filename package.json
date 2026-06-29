@@ -1,30 +1,24 @@
 {
-  "name": "OneBase",
+  "name": "onebase",
   "version": "0.1.0",
   "description": "Backend as a Service — TypeScript first, single binary",
   "module": "src/index.ts",
-  "main": "src/index.ts",
-  "bin": {
-    "OneBase": "./src/cli/index.ts"
-  },
+  "bin": { "onebase": "./src/cli/index.ts" },
   "scripts": {
-    "dev": "bun run --watch src/cli/index.ts start",
-    "build": "bun build src/cli/index.ts --compile --outfile OneBase",
+    "dev":      "bun run --watch src/cli/index.ts start",
+    "build":    "bun build src/cli/index.ts --compile --outfile onebase",
     "generate": "bun run src/cli/index.ts generate",
-    "migrate": "bun run src/cli/index.ts migrate"
+    "migrate":  "bun run src/cli/index.ts migrate"
   },
   "dependencies": {
-    "bcryptjs": "^2.4.3",
-    "drizzle-orm": "^0.30.0",
-    "hono": "^4.2.0",
+    "hono":         "^4.2.0",
     "jsonwebtoken": "^9.0.2",
-    "zod": "^3.22.4"
+    "bcryptjs":     "^2.4.3",
+    "zod":          "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.6",
-    "@types/node": "^26.0.1",
-    "bun-types": "latest",
-    "drizzle-kit": "^0.20.14"
+    "@types/bcryptjs":     "^2.4.6",
+    "bun-types":           "latest"
   }
 }

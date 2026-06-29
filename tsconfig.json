@@ -1,16 +1,17 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "bundler",
+    "target":                     "ESNext",
+    "module":                     "ESNext",
+    "moduleResolution":           "bundler",
     "allowImportingTsExtensions": true,
-    "strict": true,
-    "noEmit": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
+    "strict":                     true,
+    "noEmit":                     true,
+    "jsx":                        "react-jsx",
+    "jsxImportSource":            "hono/jsx",
+    "baseUrl":                    ".",
     "paths": {
-      "OneBase": ["./src/index.ts"],
-      "OneBase/*": ["./src/*"]
+      "onebase":   ["./src/index.ts"],
+      "onebase/*": ["./src/*"]
     }
   },
   "include": ["src", "schema"]
