@@ -122,15 +122,25 @@ function applyDiff(tableName: string, desired: CollectionSchemaJSON) {
 export class CollectionService {
   constructor(private name: string) {}
   private get db() { return getSQLite() }
-  private get def() {
-    const d = registry.get(this.name)
-    if (!d) throw new Error(`Collection "${this.name}" not registered`)
-    return d
+
+  // Registry entry is optional — on-the-fly collections (created via admin UI)
+  // only exist in the DB, not in the in-memory registry. Hooks only run for
+  // code-defined collections that have them.
+  private get def(): CollectionDefinition | undefined {
+    return registry.get(this.name)
+  }
+
+  // Verify the table actually exists in SQLite before any operation
+  private assertExists() {
+    if (!tableExists(this.name)) {
+      throw new Error(`Collection "${this.name}" not found`)
+    }
   }
 
   list(opts: QueryOptions = {}): CollectionRecord[] {
+    this.assertExists()
     const { filter = {}, sort = 'created_at', order = 'desc', limit = 50, offset = 0 } = opts
-    const params: unknown[] = []
+    const params: any[] = []
     let q = `SELECT * FROM ${this.name}`
     const where = Object.entries(filter).map(([k, v]) => { params.push(v); return `${k} = ?` })
     if (where.length) q += ` WHERE ${where.join(' AND ')}`
@@ -139,29 +149,23 @@ export class CollectionService {
     return this.db.query(q).all(...params) as CollectionRecord[]
   }
 
-  listRaw(tableName: string, limit = 50, offset = 0): CollectionRecord[] {
-    return this.db.query(`SELECT * FROM ${tableName} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-      .all(limit, offset) as CollectionRecord[]
-  }
-
   count(filter: Record<string, unknown> = {}): number {
-    const params: unknown[] = []
+    this.assertExists()
+    const params: any[] = []
     let q = `SELECT COUNT(*) as c FROM ${this.name}`
     const where = Object.entries(filter).map(([k, v]) => { params.push(v); return `${k} = ?` })
     if (where.length) q += ` WHERE ${where.join(' AND ')}`
     return (this.db.query(q).get(...params) as any).c
   }
 
-  countTable(tableName: string): number {
-    return (this.db.query(`SELECT COUNT(*) as c FROM ${tableName}`).get() as any).c
-  }
-
   getById(id: string): CollectionRecord | null {
+    this.assertExists()
     return this.db.query(`SELECT * FROM ${this.name} WHERE id = ?`).get(id) as CollectionRecord | null
   }
 
   async create(data: Record<string, unknown>, ctx: HookContext): Promise<CollectionRecord> {
-    let payload = this.def.hooks?.beforeCreate ? await this.def.hooks.beforeCreate({ ...data }, ctx) : { ...data }
+    this.assertExists()
+    let payload = this.def?.hooks?.beforeCreate ? await this.def.hooks.beforeCreate({ ...data }, ctx) : { ...data }
     const id    = crypto.randomUUID()
     const now   = new Date().toISOString()
     const row   = { ...payload, id, created_at: now, updated_at: now }
@@ -169,24 +173,26 @@ export class CollectionService {
     const ph    = Object.keys(row).map(() => '?').join(', ')
     this.db.query(`INSERT INTO ${this.name} (${cols}) VALUES (${ph})`).run(...Object.values(row))
     const record = this.getById(id)!
-    if (this.def.hooks?.afterCreate) await this.def.hooks.afterCreate(record, ctx)
+    if (this.def?.hooks?.afterCreate) await this.def.hooks.afterCreate(record, ctx)
     return record
   }
 
   async update(id: string, data: Record<string, unknown>, ctx: HookContext): Promise<CollectionRecord> {
-    let payload = this.def.hooks?.beforeUpdate ? await this.def.hooks.beforeUpdate(id, { ...data }, ctx) : { ...data }
+    this.assertExists()
+    let payload = this.def?.hooks?.beforeUpdate ? await this.def.hooks.beforeUpdate(id, { ...data }, ctx) : { ...data }
     const row   = { ...payload, updated_at: new Date().toISOString() }
     const set   = Object.keys(row).map(k => `${k} = ?`).join(', ')
     this.db.query(`UPDATE ${this.name} SET ${set} WHERE id = ?`).run(...Object.values(row), id)
     const record = this.getById(id)!
-    if (this.def.hooks?.afterUpdate) await this.def.hooks.afterUpdate(record, ctx)
+    if (this.def?.hooks?.afterUpdate) await this.def.hooks.afterUpdate(record, ctx)
     return record
   }
 
   async delete(id: string, ctx: HookContext): Promise<void> {
-    if (this.def.hooks?.beforeDelete) await this.def.hooks.beforeDelete(id, ctx)
+    this.assertExists()
+    if (this.def?.hooks?.beforeDelete) await this.def.hooks.beforeDelete(id, ctx)
     this.db.query(`DELETE FROM ${this.name} WHERE id = ?`).run(id)
-    if (this.def.hooks?.afterDelete) await this.def.hooks.afterDelete(id, ctx)
+    if (this.def?.hooks?.afterDelete) await this.def.hooks.afterDelete(id, ctx)
   }
 }
 
