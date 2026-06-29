@@ -164,3 +164,61 @@ adminRouter.get('/api/users', async (c) => {
   const total  = (db.query('SELECT COUNT(*) as c FROM _ob_users').get() as any).c
   return c.json({ items, total })
 })
+
+// POST /admin/api/users — create user
+adminRouter.post('/api/users', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const { email, password, role } = await c.req.json<{ email: string; password: string; role?: string }>()
+  const { authService } = await import('../../core/auth.ts')
+  const user = await authService.register(email, password, role ?? 'user')
+  return c.json({ user }, 201)
+})
+
+// PATCH /admin/api/users/:id — update role, password, verified
+adminRouter.patch('/api/users/:id', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const { role, password, verified } = await c.req.json<{ role?: string; password?: string; verified?: boolean }>()
+  const db = getSQLite()
+  const user = db.query('SELECT * FROM _ob_users WHERE id = ?').get(c.req.param('id')) as any
+  if (!user) return c.json({ error: 'User not found' }, 404)
+
+  const updates: string[] = []
+  const params: unknown[] = []
+
+  if (role !== undefined) { updates.push('role = ?'); params.push(role) }
+  if (verified !== undefined) { updates.push('verified = ?'); params.push(verified ? 1 : 0) }
+  if (password) {
+    const { hash } = await import('bcryptjs')
+    const passwordHash = await hash(password, 12)
+    updates.push('password_hash = ?'); params.push(passwordHash)
+  }
+
+  if (updates.length > 0) {
+    updates.push('updated_at = datetime(\'now\')')
+    params.push(c.req.param('id'))
+    db.run(`UPDATE _ob_users SET ${updates.join(', ')} WHERE id = ?`, params)
+  }
+
+  const updated = db.query('SELECT id, email, role, verified, created_at FROM _ob_users WHERE id = ?').get(c.req.param('id'))
+  return c.json({ user: updated })
+})
+
+// DELETE /admin/api/users/:id — delete user
+adminRouter.delete('/api/users/:id', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+
+  // Prevent deleting yourself
+  if (auth.user.id === c.req.param('id')) {
+    return c.json({ error: 'Cannot delete your own account' }, 400)
+  }
+
+  const db = getSQLite()
+  const user = db.query('SELECT id FROM _ob_users WHERE id = ?').get(c.req.param('id'))
+  if (!user) return c.json({ error: 'User not found' }, 404)
+
+  db.run('DELETE FROM _ob_users WHERE id = ?', [c.req.param('id')])
+  return c.json({ ok: true })
+})
