@@ -1,7 +1,6 @@
 /** @jsxImportSource hono/jsx/dom */
 import { useState, useEffect, useCallback, useRef } from 'hono/jsx'
 import { render } from 'hono/jsx/dom'
-import { capitalize } from 'complete-js-utils';
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -334,6 +333,141 @@ function CollectionModal({ initial, onClose, onSave }: {
   )
 }
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+/** author_id → Author Id   |   coverImage → Cover Image */
+function fieldLabel(key: string): string {
+  return key
+    .replace(/_/g, ' ')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/\b\w/g, c => c.toUpperCase())
+}
+
+/** Fetch first 50 records from a related collection for the select options */
+function useRelationOptions(collectionName: string | undefined) {
+  const [options, setOptions] = useState<{ id: string; label: string }[]>([])
+  useEffect(() => {
+    if (!collectionName) return
+    apiFetch<any>(`/api/${collectionName}?limit=50`)
+      .then(res => {
+        const items: any[] = res.items ?? []
+        setOptions(items.map(r => ({
+          id:    r.id,
+          // Show the first meaningful text field found, fallback to id slice
+          label: r.name ?? r.title ?? r.email ?? r.slug ?? `${collectionName}:${String(r.id).slice(0, 8)}`,
+        })))
+      })
+      .catch(() => setOptions([]))
+  }, [collectionName])
+  return options
+}
+
+// ─── Record field — renders the right input per field type ────────────────────
+
+function RecordField({ fieldKey, field, value, onChange }: {
+  fieldKey: string
+  field:    any
+  value:    any
+  onChange: (val: any) => void
+}) {
+  const label = fieldLabel(fieldKey)
+  const req   = field.required ? ' *' : ''
+
+  // ── boolean ──
+  if (field.type === 'boolean') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}</label>
+      <input type="checkbox" checked={!!value}
+        onChange={(e: any) => onChange(e.target.checked)} />
+    </div>
+  )
+
+  // ── text (textarea) ──
+  if (field.type === 'text') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req}</label>
+      <textarea class="ob-input" rows={3} style="resize:vertical" value={value ?? ''}
+        onInput={(e: any) => onChange(e.target.value)} />
+    </div>
+  )
+
+  // ── file ──
+  if (field.type === 'file') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req}</label>
+      {value && (
+        <div style="margin-bottom:6px;font-size:11px;color:var(--muted)">
+          Current: <a href={value} target="_blank" style="color:var(--accent2)">{String(value).split('/').pop()}</a>
+        </div>
+      )}
+      <input
+        type="file"
+        style="color:var(--text);font-size:12px;width:100%"
+        onChange={(e: any) => {
+          const file = e.target.files?.[0]
+          if (file) onChange(file)   // store the File object; upload handled on save
+        }}
+      />
+    </div>
+  )
+
+  // ── relation (select populated with related records) ──
+  if (field.type === 'relation') {
+    const options = useRelationOptions(field.collection)
+    return (
+      <div class="ob-field-row" key={fieldKey}>
+        <label class="ob-label">{label}{req} <span style="color:var(--muted)">→ {field.collection}</span></label>
+        <select class="ob-select" value={value ?? ''}
+          onChange={(e: any) => onChange(e.target.value)}>
+          <option value="">— select —</option>
+          {options.map(o => (
+            <option key={o.id} value={o.id}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+    )
+  }
+
+  // ── date ──
+  if (field.type === 'date' || field.type === 'datetime') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req}</label>
+      <input class="ob-input"
+        type={field.type === 'datetime' ? 'datetime-local' : 'date'}
+        value={value ?? ''}
+        onInput={(e: any) => onChange(e.target.value)} />
+    </div>
+  )
+
+  // ── number ──
+  if (field.type === 'number') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req}</label>
+      <input class="ob-input" type="number" value={value ?? ''}
+        onInput={(e: any) => onChange(Number(e.target.value))} />
+    </div>
+  )
+
+  // ── json ──
+  if (field.type === 'json') return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req} <span style="color:var(--muted)">(JSON)</span></label>
+      <textarea class="ob-input" rows={3} style="resize:vertical;font-family:monospace;font-size:11px"
+        value={typeof value === 'object' ? JSON.stringify(value, null, 2) : (value ?? '')}
+        onInput={(e: any) => onChange(e.target.value)} />
+    </div>
+  )
+
+  // ── string (default) ──
+  return (
+    <div class="ob-field-row" key={fieldKey}>
+      <label class="ob-label">{label}{req}</label>
+      <input class="ob-input" type="text" value={value ?? ''}
+        onInput={(e: any) => onChange(e.target.value)} />
+    </div>
+  )
+}
+
 // ─── Record modal ─────────────────────────────────────────────────────────────
 
 function RecordModal({ collection, fields, record, onClose, onSave }: {
@@ -349,14 +483,37 @@ function RecordModal({ collection, fields, record, onClose, onSave }: {
 
   async function handleSave() {
     setError('')
-    const { id, created_at, updated_at, ...payload } = data
     setSaving(true)
     try {
+      const { id, created_at, updated_at, ...payload } = data
+
+      // Check if any field is a File object — needs multipart upload first
+      const fileFields = Object.entries(payload).filter(([, v]) => v instanceof File)
+      const jsonFields = Object.fromEntries(
+        Object.entries(payload).filter(([, v]) => !(v instanceof File))
+      )
+
+      let savedId = record?.id
+
+      // 1. Create/update the record with non-file fields
       if (isEdit) {
-        await apiFetch(`/api/${collection}/${record!.id}`, { method: 'PATCH', body: JSON.stringify(payload) })
+        await apiFetch(`/api/${collection}/${record!.id}`, { method: 'PATCH', body: JSON.stringify(jsonFields) })
       } else {
-        await apiFetch(`/api/${collection}`, { method: 'POST', body: JSON.stringify(payload) })
+        const res = await apiFetch<any>(`/api/${collection}`, { method: 'POST', body: JSON.stringify(jsonFields) })
+        savedId = res.id
       }
+
+      // 2. Upload each file field separately
+      for (const [fieldKey, file] of fileFields) {
+        const form = new FormData()
+        form.append(fieldKey, file as File)
+        await fetch(`/api/${collection}/${savedId}/upload?field=${fieldKey}`, {
+          method:  'POST',
+          headers: _token ? { Authorization: `Bearer ${_token}` } : {},
+          body:    form,
+        })
+      }
+
       onSave(); onClose()
     } catch (e: any) { setError(e.message) }
     finally { setSaving(false) }
@@ -364,32 +521,15 @@ function RecordModal({ collection, fields, record, onClose, onSave }: {
 
   return (
     <Modal title={isEdit ? 'Edit record' : 'New record'} onClose={onClose}>
-      {Object.entries(fields).map(([key, field]) => {
-        const value = data[key] ?? ''
-        if (field.type === 'boolean') return (
-          <div class="ob-field-row" key={key}>
-            <label class="ob-label">{capitalize(key)}</label>
-            <input type="checkbox" checked={!!value}
-              onChange={(e: any) => setData((d: any) => ({ ...d, [key]: e.target.checked }))} />
-          </div>
-        )
-        if (field.type === 'text') return (
-          <div class="ob-field-row" key={key}>
-            <label class="ob-label">{capitalize(key)}{field.required ? ' *' : ''}</label>
-            <textarea class="ob-input" rows={3} style="resize:vertical" value={value}
-              onInput={(e: any) => setData((d: any) => ({ ...d, [key]: e.target.value }))} />
-          </div>
-        )
-        return (
-          <div class="ob-field-row" key={key}>
-            <label class="ob-label">{capitalize(key)}{field.required ? ' *' : ''} <span style="color:var(--muted)">({field.type})</span></label>
-            <input class="ob-input"
-              type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
-              value={value}
-              onInput={(e: any) => setData((d: any) => ({ ...d, [key]: e.target.value }))} />
-          </div>
-        )
-      })}
+      {Object.entries(fields).map(([key, field]) => (
+        <RecordField
+          key={key}
+          fieldKey={key}
+          field={field}
+          value={data[key]}
+          onChange={(val: any) => setData((d: any) => ({ ...d, [key]: val }))}
+        />
+      ))}
       {error && <Err msg={error} />}
       <div class="ob-btn-row">
         <button class="ob-btn ob-btn-ghost" onClick={onClose}>Cancel</button>
@@ -561,28 +701,140 @@ function Collections() {
   )
 }
 
+// ─── User modal (create / edit) ───────────────────────────────────────────────
+
+function UserModal({ user, onClose, onSave }: {
+  user?:    any
+  onClose:  () => void
+  onSave:   () => void
+}) {
+  const isEdit = !!user
+  const [email,    setEmail]    = useState(user?.email    ?? '')
+  const [password, setPassword] = useState('')
+  const [role,     setRole]     = useState(user?.role     ?? 'user')
+  const [verified, setVerified] = useState(user?.verified ?? false)
+  const [error,    setError]    = useState('')
+  const [saving,   setSaving]   = useState(false)
+
+  async function handleSave() {
+    setError('')
+    if (!email.includes('@'))           { setError('Valid email required'); return }
+    if (!isEdit && password.length < 8) { setError('Password must be at least 8 characters'); return }
+
+    setSaving(true)
+    try {
+      if (isEdit) {
+        await apiFetch(`/admin/api/users/${user.id}`, {
+          method: 'PATCH',
+          body:   JSON.stringify({
+            role, verified,
+            ...(password ? { password } : {}),
+          }),
+        })
+      } else {
+        await apiFetch('/admin/api/users', {
+          method: 'POST',
+          body:   JSON.stringify({ email, password, role }),
+        })
+      }
+      onSave(); onClose()
+    } catch (e: any) { setError(e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Modal title={isEdit ? `Edit — ${user.email}` : 'New User'} onClose={onClose}>
+      <div class="ob-field-row">
+        <label class="ob-label">Email</label>
+        <input class="ob-input" type="email" placeholder="user@example.com"
+          value={email} onInput={(e: any) => setEmail(e.target.value)}
+          disabled={isEdit} style={isEdit ? 'opacity:.5' : ''} />
+      </div>
+
+      <div class="ob-field-row">
+        <label class="ob-label">{isEdit ? 'New password (leave blank to keep current)' : 'Password *'}</label>
+        <input class="ob-input" type="password" placeholder="••••••••"
+          value={password} onInput={(e: any) => setPassword(e.target.value)} />
+      </div>
+
+      <div class="ob-field-row">
+        <label class="ob-label">Role</label>
+        <select class="ob-select" value={role} onChange={(e: any) => setRole(e.target.value)}>
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+      </div>
+
+      {isEdit && (
+        <div class="ob-field-row" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="ob-verified" checked={verified}
+            onChange={(e: any) => setVerified(e.target.checked)} />
+          <label for="ob-verified" style="color:var(--text);font-size:13px;cursor:pointer">
+            Verified
+          </label>
+        </div>
+      )}
+
+      {error && <Err msg={error} />}
+
+      <div class="ob-btn-row">
+        <button class="ob-btn ob-btn-ghost" onClick={onClose}>Cancel</button>
+        <button class="ob-btn ob-btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create user'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 // ─── Users page ───────────────────────────────────────────────────────────────
 
 function Users() {
-  const { data, loading, error } = useAsync(() => apiFetch<any>('/admin/api/users'))
+  const { data, loading, error, refetch } = useAsync(() => apiFetch<any>('/admin/api/users'))
+  const [showCreate, setShowCreate] = useState(false)
+  const [editUser,   setEditUser]   = useState<any | null>(null)
+
+  async function handleDelete(u: any) {
+    if (!confirm(`Delete user "${u.email}"? This cannot be undone.`)) return
+    try {
+      await apiFetch(`/admin/api/users/${u.id}`, { method: 'DELETE' })
+      refetch()
+    } catch (e: any) { alert(e.message) }
+  }
+
   if (loading) return <Spinner />
   if (error)   return <Err msg={error} />
+
   return (
     <div>
       <div class="ob-page-header">
-        <div><div class="ob-title">Users</div><div class="ob-subtitle">{data.total} registered users</div></div>
+        <div>
+          <div class="ob-title">Users</div>
+          <div class="ob-subtitle">{data.total} registered users</div>
+        </div>
+        <button class="ob-btn ob-btn-primary" onClick={() => setShowCreate(true)}>+ New user</button>
       </div>
-      <OTable
-        headers={['ID', 'Email', 'Role', 'Verified', 'Created']}
-        empty="No users yet"
-        rows={(data.items ?? []).map((u: any) => [
-          <span style="font-family:monospace;font-size:10px;color:var(--muted)">{u.id.slice(0, 8)}…</span>,
-          u.email,
-          <Badge color={u.role === 'admin' ? 'indigo' : 'gray'}>{u.role}</Badge>,
-          <Badge color={u.verified ? 'green' : 'gray'}>{u.verified ? 'yes' : 'no'}</Badge>,
-          <span style="color:var(--muted);font-size:10px">{new Date(u.created_at).toLocaleString()}</span>,
-        ])}
-      />
+
+      <div class="ob-table-wrap">
+        <OTable
+          headers={['ID', 'Email', 'Role', 'Verified', 'Created', 'Actions']}
+          empty="No users yet"
+          rows={(data.items ?? []).map((u: any) => [
+            <span style="font-family:monospace;font-size:10px;color:var(--muted)">{u.id.slice(0, 8)}…</span>,
+            u.email,
+            <Badge color={u.role === 'admin' ? 'indigo' : 'gray'}>{u.role}</Badge>,
+            <Badge color={u.verified ? 'green' : 'gray'}>{u.verified ? 'yes' : 'no'}</Badge>,
+            <span style="color:var(--muted);font-size:10px">{new Date(u.created_at).toLocaleString()}</span>,
+            <div class="ob-actions">
+              <button class="ob-btn ob-btn-ghost ob-btn-sm" onClick={() => setEditUser(u)}>Edit</button>
+              <button class="ob-btn ob-btn-danger ob-btn-sm" onClick={() => handleDelete(u)}>Delete</button>
+            </div>,
+          ])}
+        />
+      </div>
+
+      {showCreate && <UserModal onClose={() => setShowCreate(false)} onSave={refetch} />}
+      {editUser   && <UserModal user={editUser} onClose={() => setEditUser(null)} onSave={refetch} />}
     </div>
   )
 }
