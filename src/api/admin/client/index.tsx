@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx/dom */
 import { useState, useEffect, useCallback, useRef } from 'hono/jsx'
 import { render } from 'hono/jsx/dom'
+import { capitalize } from 'complete-js-utils';
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -367,21 +368,21 @@ function RecordModal({ collection, fields, record, onClose, onSave }: {
         const value = data[key] ?? ''
         if (field.type === 'boolean') return (
           <div class="ob-field-row" key={key}>
-            <label class="ob-label">{key}</label>
+            <label class="ob-label">{capitalize(key)}</label>
             <input type="checkbox" checked={!!value}
               onChange={(e: any) => setData((d: any) => ({ ...d, [key]: e.target.checked }))} />
           </div>
         )
         if (field.type === 'text') return (
           <div class="ob-field-row" key={key}>
-            <label class="ob-label">{key}{field.required ? ' *' : ''}</label>
+            <label class="ob-label">{capitalize(key)}{field.required ? ' *' : ''}</label>
             <textarea class="ob-input" rows={3} style="resize:vertical" value={value}
               onInput={(e: any) => setData((d: any) => ({ ...d, [key]: e.target.value }))} />
           </div>
         )
         return (
           <div class="ob-field-row" key={key}>
-            <label class="ob-label">{key}{field.required ? ' *' : ''} <span style="color:var(--muted)">({field.type})</span></label>
+            <label class="ob-label">{capitalize(key)}{field.required ? ' *' : ''} <span style="color:var(--muted)">({field.type})</span></label>
             <input class="ob-input"
               type={field.type === 'number' ? 'number' : field.type === 'date' ? 'date' : 'text'}
               value={value}
