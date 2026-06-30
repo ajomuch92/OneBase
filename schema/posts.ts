@@ -1,4 +1,4 @@
-import { defineCollection, PRESETS } from '../src/index.ts'
+import { defineCollection } from '../src/index.ts'
 
 export const posts = defineCollection({
   name: 'posts',
