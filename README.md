@@ -11,7 +11,8 @@ bun install
 bun dev
 ```
 
-Server starts at `http://localhost:3000`. Admin UI at `/admin`.
+Server starts at `http://localhost:3000`. Admin UI at `/admin` — manage
+collections, records, indexes, and users from there.
 
 ## Database
 
@@ -177,7 +178,8 @@ registerPlugin({
 OneBase/
 ├── src/
 │   ├── core/
-│   │   ├── db.ts            SQLite + Drizzle, system tables
+│   │   ├── db.ts            DB adapter singleton, system tables
+│   │   ├── drivers/         SQLite / MySQL / PostgreSQL adapters
 │   │   ├── collections.ts   Dynamic CRUD engine
 │   │   ├── auth.ts          JWT + sessions
 │   │   ├── router.ts        Hono + auto-generated routes
@@ -201,14 +203,14 @@ OneBase/
 
 - **Runtime**: [Bun](https://bun.sh) — fast runtime, SQLite built-in, single binary output
 - **HTTP**: [Hono](https://hono.dev) — lightweight, fast, TypeScript-first
-- **DB**: [Drizzle ORM](https://orm.drizzle.team) for system tables + raw SQLite for dynamic collections
+- **DB**: pluggable adapters (SQLite via `bun:sqlite`, MySQL via `mysql2`, PostgreSQL via `pg`) over raw SQL
 - **Auth**: JWT via `jsonwebtoken` + bcrypt password hashing
 
 ## Roadmap
 
-- [ ] Schema diffing + ALTER TABLE migrations
-- [ ] File uploads
+- [x] Schema diffing + ALTER TABLE migrations
+- [x] File uploads
+- [x] MySQL / PostgreSQL adapters
 - [ ] OAuth2 providers
 - [ ] Row-level permissions
-- [ ] Postgres adapter
 - [ ] Plugin marketplace
