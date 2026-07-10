@@ -314,3 +314,11 @@ adminRouter.delete('/api/users/:id', async (c) => {
   await db.run('DELETE FROM _ob_users WHERE id = ?', [c.req.param('id')])
   return c.json({ ok: true })
 })
+
+// ─── SPA fallback ─────────────────────────────────────────────────────────────
+
+// The client does its own URL-based routing (see client/hooks/useLocation.ts),
+// so any /admin/* path not matched above — e.g. /admin/collections/posts —
+// must still serve the shell so deep links and hard refreshes work. Registered
+// last so it never shadows the routes above.
+adminRouter.get('*', (c) => c.html(SHELL_HTML))

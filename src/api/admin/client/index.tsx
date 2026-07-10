@@ -1,6 +1,7 @@
 /** @jsxImportSource hono/jsx/dom */
 import { useState, useEffect, useCallback, useRef } from 'hono/jsx'
 import { render } from 'hono/jsx/dom'
+import { useLocation } from './hooks/useLocation.ts'
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -793,17 +794,19 @@ function CollectionPanel({ def, onEdit, onDelete, onRefresh }: {
 
 // ─── Collections page ─────────────────────────────────────────────────────────
 
-function Collections() {
+function Collections({ pathname, navigate }: { pathname: string; navigate: (to: string) => void }) {
   const { data: cols, loading, error, refetch } = useAsync<any[]>(() => apiFetch('/admin/api/collections'))
-  const [selected,   setSelected]   = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<any | null>(null)
 
+  // Selection lives in the URL (/admin/collections/:name), not in useState —
+  // that's what makes a specific collection panel deep-linkable/refreshable.
+  const selected  = decodeURIComponent(pathname.match(/^\/admin\/collections\/([^/]+)/)?.[1] ?? '') || null
   const activeDef = cols?.find(c => c.name === (selected ?? cols?.[0]?.name))
 
   async function handleDelete(name: string) {
     if (!confirm(`Delete "${name}" and ALL its records? This cannot be undone.`)) return
-    try { await apiFetch(`/admin/api/collections/${name}`, { method: 'DELETE' }); setSelected(null); refetch() }
+    try { await apiFetch(`/admin/api/collections/${name}`, { method: 'DELETE' }); navigate('/admin/collections'); refetch() }
     catch (e: any) { alert(e.message) }
   }
 
@@ -828,7 +831,7 @@ function Collections() {
               : cols.map(c => (
                 <button key={c.name}
                   class={`ob-collection-item${(selected ?? cols[0]?.name) === c.name ? ' active' : ''}`}
-                  onClick={() => setSelected(c.name)}>
+                  onClick={() => navigate(`/admin/collections/${c.name}`)}>
                   <span>{c.name}</span>
                   <span style="color:var(--muted);font-size:11px">{c.count}</span>
                 </button>
@@ -1041,9 +1044,15 @@ function Login({ onLogin }: { onLogin: () => void }) {
 
 type Page = 'dashboard' | 'collections' | 'users'
 
+function pathToPage(pathname: string): Page {
+  if (pathname.startsWith('/admin/collections')) return 'collections'
+  if (pathname.startsWith('/admin/users'))        return 'users'
+  return 'dashboard'
+}
+
 function App() {
-  const [authed, setAuthed] = useState(!!_token)
-  const [page,   setPage]   = useState<Page>('dashboard')
+  const [authed, setAuthed]     = useState(!!_token)
+  const [pathname, navigate]    = useLocation()
 
   if (!authed) return <Login onLogin={() => setAuthed(true)} />
 
@@ -1052,10 +1061,12 @@ function App() {
     setToken(null); setAuthed(false)
   }
 
+  const page = pathToPage(pathname)
+
   const nav = [
-    { id: 'dashboard'   as Page, label: 'Dashboard',   icon: '⬡' },
-    { id: 'collections' as Page, label: 'Collections', icon: '⊞' },
-    { id: 'users'       as Page, label: 'Users',       icon: '◎' },
+    { id: 'dashboard'   as Page, label: 'Dashboard',   icon: '⬡', href: '/admin' },
+    { id: 'collections' as Page, label: 'Collections', icon: '⊞', href: '/admin/collections' },
+    { id: 'users'       as Page, label: 'Users',       icon: '◎', href: '/admin/users' },
   ]
 
   return (
@@ -1065,7 +1076,7 @@ function App() {
         <nav class="ob-nav">
           {nav.map(item => (
             <button key={item.id} class={`ob-nav-link${page === item.id ? ' active' : ''}`}
-              onClick={() => setPage(item.id)}>
+              onClick={() => navigate(item.href)}>
               <span style="width:18px;text-align:center">{item.icon}</span> {item.label}
             </button>
           ))}
@@ -1074,7 +1085,7 @@ function App() {
       </aside>
       <main class="ob-main">
         {page === 'dashboard'   && <Dashboard />}
-        {page === 'collections' && <Collections />}
+        {page === 'collections' && <Collections pathname={pathname} navigate={navigate} />}
         {page === 'users'       && <Users />}
       </main>
     </div>
