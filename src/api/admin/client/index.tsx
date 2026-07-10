@@ -541,6 +541,154 @@ function RecordModal({ collection, fields, record, onClose, onSave }: {
   )
 }
 
+// ─── Index modal (create / edit) ───────────────────────────────────────────────
+
+interface IndexRow { name: string; columns: string[]; unique: boolean }
+
+function IndexModal({ collection, columnOptions, initial, onClose, onSave }: {
+  collection:    string
+  columnOptions: string[]
+  initial?:      IndexRow
+  onClose:       () => void
+  onSave:        () => void
+}) {
+  const isEdit = !!initial
+  const [name,    setName]    = useState(initial?.name ?? '')
+  const [columns, setColumns] = useState<string[]>(initial?.columns ?? [])
+  const [unique,  setUnique]  = useState(initial?.unique ?? false)
+  const [error,   setError]   = useState('')
+  const [saving,  setSaving]  = useState(false)
+
+  function toggleColumn(col: string) {
+    setColumns(cs => cs.includes(col) ? cs.filter(c => c !== col) : [...cs, col])
+  }
+
+  async function handleSave() {
+    setError('')
+    if (!isEdit && (!name.trim() || !/^[a-z][a-z0-9_]*$/.test(name))) {
+      setError('Index name must be lowercase letters, numbers, underscores'); return
+    }
+    if (columns.length === 0) { setError('Select at least one column'); return }
+
+    setSaving(true)
+    try {
+      if (isEdit) {
+        await apiFetch(`/admin/api/collections/${collection}/indexes/${initial!.name}`, {
+          method: 'PUT', body: JSON.stringify({ columns, unique }),
+        })
+      } else {
+        await apiFetch(`/admin/api/collections/${collection}/indexes`, {
+          method: 'POST', body: JSON.stringify({ name, columns, unique }),
+        })
+      }
+      onSave(); onClose()
+    } catch (e: any) { setError(e.message) }
+    finally { setSaving(false) }
+  }
+
+  return (
+    <Modal title={isEdit ? `Edit index — ${initial!.name}` : 'New index'} onClose={onClose}>
+      {!isEdit && (
+        <div class="ob-field-row">
+          <label class="ob-label">Index name</label>
+          <input class="ob-input" placeholder={`idx_${collection}_...`} value={name}
+            onInput={(e: any) => setName(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
+        </div>
+      )}
+
+      <div class="ob-field-row">
+        <label class="ob-label">Columns</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          {columnOptions.map(col => (
+            <label key={col} style={`display:flex;align-items:center;gap:5px;padding:5px 9px;border-radius:99px;
+              font-size:12px;cursor:pointer;border:1px solid var(--border);
+              ${columns.includes(col) ? 'background:rgba(99,102,241,.15);border-color:var(--accent)' : ''}`}>
+              <input type="checkbox" checked={columns.includes(col)} onChange={() => toggleColumn(col)} style="margin:0" />
+              {col}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div class="ob-field-row" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="ob-idx-unique" checked={unique}
+          onChange={(e: any) => setUnique(e.target.checked)} />
+        <label for="ob-idx-unique" style="color:var(--text);font-size:13px;cursor:pointer">Unique</label>
+      </div>
+
+      {error && <Err msg={error} />}
+
+      <div class="ob-btn-row">
+        <button class="ob-btn ob-btn-ghost" onClick={onClose}>Cancel</button>
+        <button class="ob-btn ob-btn-primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : isEdit ? 'Save changes' : 'Create index'}
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ─── Indexes card ───────────────────────────────────────────────────────────────
+
+function IndexesCard({ def }: { def: any }) {
+  const { data: indexes, loading, error, refetch } = useAsync<IndexRow[]>(
+    () => apiFetch(`/admin/api/collections/${def.name}/indexes`),
+    [def.name],
+  )
+  const [showNew, setShowNew] = useState(false)
+  const [editIdx, setEditIdx] = useState<IndexRow | null>(null)
+
+  const columnOptions = ['id', ...Object.keys(def.fields), 'created_at', 'updated_at']
+
+  async function handleDelete(indexName: string) {
+    if (!confirm(`Delete index "${indexName}"?`)) return
+    try {
+      await apiFetch(`/admin/api/collections/${def.name}/indexes/${indexName}`, { method: 'DELETE' })
+      refetch()
+    } catch (e: any) { alert(e.message) }
+  }
+
+  return (
+    <div class="ob-card" style="padding:0">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 16px">
+        <div class="ob-section-title" style="margin-bottom:0">Indexes</div>
+        <div class="ob-actions">
+          <button class="ob-btn ob-btn-ghost ob-btn-sm" onClick={refetch}>↺ Refresh</button>
+          <button class="ob-btn ob-btn-primary ob-btn-sm" onClick={() => setShowNew(true)}>+ New index</button>
+        </div>
+      </div>
+
+      {loading && <Spinner />}
+      {error   && <div style="padding:16px"><Err msg={error} /></div>}
+
+      {indexes && (
+        <OTable
+          headers={['Name', 'Columns', 'Unique', 'Actions']}
+          empty="No indexes yet"
+          rows={indexes.map(idx => [
+            idx.name,
+            idx.columns.join(', '),
+            <Badge color={idx.unique ? 'green' : 'gray'}>{idx.unique ? 'yes' : 'no'}</Badge>,
+            <div class="ob-actions">
+              <button class="ob-btn ob-btn-ghost ob-btn-sm" onClick={() => setEditIdx(idx)}>Edit</button>
+              <button class="ob-btn ob-btn-danger ob-btn-sm" onClick={() => handleDelete(idx.name)}>Del</button>
+            </div>,
+          ])}
+        />
+      )}
+
+      {showNew && (
+        <IndexModal collection={def.name} columnOptions={columnOptions}
+          onClose={() => setShowNew(false)} onSave={refetch} />
+      )}
+      {editIdx && (
+        <IndexModal collection={def.name} columnOptions={columnOptions} initial={editIdx}
+          onClose={() => setEditIdx(null)} onSave={refetch} />
+      )}
+    </div>
+  )
+}
+
 // ─── Collection panel ─────────────────────────────────────────────────────────
 
 function CollectionPanel({ def, onEdit, onDelete, onRefresh }: {
@@ -588,6 +736,9 @@ function CollectionPanel({ def, onEdit, onDelete, onRefresh }: {
           ))}
         </div>
       </div>
+
+      {/* Indexes card */}
+      <IndexesCard def={def} />
 
       {/* Records card */}
       <div class="ob-card" style="padding:0">

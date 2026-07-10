@@ -166,6 +166,86 @@ adminRouter.get('/api/collections/:name/records', async (c) => {
   }
 })
 
+// ─── Indexes ──────────────────────────────────────────────────────────────────
+
+const INDEX_NAME_RE = /^[a-z][a-z0-9_]*$/
+
+adminRouter.get('/api/collections/:name/indexes', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const db   = getDB()
+  const name = c.req.param('name')
+  if (!(await db.tableExists(name))) return c.json({ error: 'Collection not found' }, 404)
+  return c.json(await db.listIndexes(name))
+})
+
+adminRouter.post('/api/collections/:name/indexes', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const db   = getDB()
+  const name = c.req.param('name')
+  if (!(await db.tableExists(name))) return c.json({ error: 'Collection not found' }, 404)
+
+  const { name: indexName, columns, unique } = await c.req.json<{ name: string; columns: string[]; unique?: boolean }>()
+  if (!indexName || !INDEX_NAME_RE.test(indexName)) {
+    return c.json({ error: 'Index name must be lowercase letters, numbers, underscores' }, 400)
+  }
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return c.json({ error: 'At least one column is required' }, 400)
+  }
+  if ((await db.listIndexes(name)).some(i => i.name === indexName)) {
+    return c.json({ error: `Index "${indexName}" already exists` }, 409)
+  }
+
+  try {
+    await db.createIndex(name, indexName, columns, !!unique)
+    return c.json({ ok: true }, 201)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
+})
+
+// Indexes can't have their columns/uniqueness altered in place on any of the
+// three engines — "update" is drop + recreate under the same name.
+adminRouter.put('/api/collections/:name/indexes/:indexName', async (c) => {
+  const auth      = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const db        = getDB()
+  const name      = c.req.param('name')
+  const indexName = c.req.param('indexName')
+  if (!(await db.tableExists(name))) return c.json({ error: 'Collection not found' }, 404)
+
+  const { columns, unique } = await c.req.json<{ columns: string[]; unique?: boolean }>()
+  if (!Array.isArray(columns) || columns.length === 0) {
+    return c.json({ error: 'At least one column is required' }, 400)
+  }
+  if (!(await db.listIndexes(name)).some(i => i.name === indexName)) {
+    return c.json({ error: 'Index not found' }, 404)
+  }
+
+  try {
+    await db.dropIndex(name, indexName)
+    await db.createIndex(name, indexName, columns, !!unique)
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 400)
+  }
+})
+
+adminRouter.delete('/api/collections/:name/indexes/:indexName', async (c) => {
+  const auth      = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  const db        = getDB()
+  const name      = c.req.param('name')
+  const indexName = c.req.param('indexName')
+  if (!(await db.tableExists(name))) return c.json({ error: 'Collection not found' }, 404)
+  if (!(await db.listIndexes(name)).some(i => i.name === indexName)) {
+    return c.json({ error: 'Index not found' }, 404)
+  }
+  await db.dropIndex(name, indexName)
+  return c.json({ ok: true })
+})
+
 adminRouter.get('/api/users', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
