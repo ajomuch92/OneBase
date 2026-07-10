@@ -7,6 +7,7 @@ import { getCollection, listStoredCollections } from './collections.ts'
 import { realtimeService } from './realtime.ts'
 import { permissionEngine } from './permissions.ts'
 import { uploadService } from './uploads.ts'
+import { rateLimiter } from './rateLimit.ts'
 import type { HookContext } from './collections.ts'
 import { authRouter } from '../api/rest.ts'
 import { adminRouter } from '../api/admin/index.ts'
@@ -17,6 +18,16 @@ export function createApp() {
   app.use('*', logger())
   app.use('*', secureHeaders())
   app.use('*', cors({ origin: process.env.ONEBASE_CORS_ORIGIN ?? '*', credentials: true }))
+
+  // Blanket protection for the REST/admin surface. /health, /files/* and
+  // /realtime are intentionally excluded — health checks and static file
+  // serving have different traffic shapes and shouldn't share this budget.
+  const apiLimiter = rateLimiter({
+    windowMs: Number(process.env.ONEBASE_RATE_LIMIT_WINDOW_MS ?? 60_000),
+    max:      Number(process.env.ONEBASE_RATE_LIMIT_MAX ?? 300),
+  })
+  app.use('/api/*', apiLimiter)
+  app.use('/admin/*', apiLimiter)
 
   app.get('/health', (c) => c.json({ ok: true, version: '0.1.0' }))
 
