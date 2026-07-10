@@ -30,7 +30,7 @@ async function loadSchema(dir: string) {
 
 async function ensureAdminExists(port: string) {
   const { authService } = await import('../core/auth.ts')
-  if (authService.userCount() > 0) return
+  if (await authService.userCount() > 0) return
 
   console.log(`
 ┌──────────────────────────────────────────┐
@@ -78,13 +78,14 @@ async function readLine(hidden = false): Promise<string> {
 
 if (command === 'start') {
   const { initDB }          = await import('../core/db.ts')
+  const { loadDBConfig }    = await import('../core/config.ts')
   const { syncCollections } = await import('../core/collections.ts')
   const { pluginRunner }    = await import('../plugins/loader.ts')
   const { createApp }       = await import('../core/router.ts')
   const { realtimeService } = await import('../core/realtime.ts')
   const { initUploads }     = await import('../core/uploads.ts')
 
-  initDB(values.db)
+  await initDB(loadDBConfig(values.db))
   initUploads()
   await loadSchema(values.schema)
   await syncCollections()
@@ -125,8 +126,9 @@ if (command === 'start') {
 
 else if (command === 'migrate') {
   const { initDB }          = await import('../core/db.ts')
+  const { loadDBConfig }    = await import('../core/config.ts')
   const { syncCollections } = await import('../core/collections.ts')
-  initDB(values.db)
+  await initDB(loadDBConfig(values.db))
   await loadSchema(values.schema)
   await syncCollections()
   console.log('[onebase] Migrations applied ✓')
@@ -134,13 +136,14 @@ else if (command === 'migrate') {
 }
 
 else if (command === 'info') {
-  const { initDB }               = await import('../core/db.ts')
+  const { initDB }                = await import('../core/db.ts')
+  const { loadDBConfig }          = await import('../core/config.ts')
   const { listStoredCollections } = await import('../core/collections.ts')
-  const { pluginRunner }         = await import('../plugins/loader.ts')
-  initDB(values.db)
+  const { pluginRunner }          = await import('../plugins/loader.ts')
+  await initDB(loadDBConfig(values.db))
   await loadSchema(values.schema)
   console.log('\nCollections:')
-  listStoredCollections().forEach(c => console.log(`  • ${c.name}`))
+  ;(await listStoredCollections()).forEach(c => console.log(`  • ${c.name}`))
   console.log('\nPlugins:')
   pluginRunner.registeredPlugins.forEach(p => console.log(`  • ${p.name}@${p.version}`))
   process.exit(0)

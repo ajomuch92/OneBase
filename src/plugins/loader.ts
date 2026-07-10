@@ -1,6 +1,6 @@
 import type { JustTSPlugin, HookEvent } from './types.ts'
 import type { HookContext } from '../core/collections.ts'
-import { getSQLite } from '../core/db.ts'
+import { getDB } from '../core/db.ts'
 
 class PluginRunner {
   private plugins: JustTSPlugin[] = []
@@ -33,13 +33,14 @@ function createPluginAPI() {
   return {
     store: {
       async get(key: string) {
-        return (getSQLite().query('SELECT value FROM _ob_plugin_store WHERE key = ?').get(key) as any)?.value ?? null
+        const row = await getDB().get<{ value: string }>('SELECT value FROM _ob_plugin_store WHERE store_key = ?', [key])
+        return row?.value ?? null
       },
       async set(key: string, value: string) {
-        getSQLite().run('INSERT OR REPLACE INTO _ob_plugin_store (key, value) VALUES (?, ?)', [key, value])
+        await getDB().upsertKV('_ob_plugin_store', 'store_key', 'value', key, value)
       },
       async del(key: string) {
-        getSQLite().run('DELETE FROM _ob_plugin_store WHERE key = ?', [key])
+        await getDB().run('DELETE FROM _ob_plugin_store WHERE store_key = ?', [key])
       },
     },
   }

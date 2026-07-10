@@ -5,9 +5,18 @@ import {
   createCollection, updateCollection, deleteCollection, listStoredCollections,
 } from '../../core/collections.ts'
 import { realtimeService } from '../../core/realtime.ts'
-import { getSQLite } from '../../core/db.ts'
-import type { CollectionSchemaJSON } from '../../core/db.ts'
+import { getDB } from '../../core/db.ts'
+import type { CollectionSchemaJSON, DBAdapter } from '../../core/db.ts'
 import { join } from 'path'
+
+async function countTable(db: DBAdapter, name: string): Promise<number> {
+  try {
+    const row = await db.get<{ c: number }>(`SELECT COUNT(*) as c FROM ${db.quoteIdent(name)}`)
+    return row?.c ?? 0
+  } catch {
+    return 0
+  }
+}
 
 export const adminRouter = new Hono()
 
@@ -96,30 +105,33 @@ adminRouter.get('/client.js', (c) => {
 adminRouter.get('/api/stats', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
-  const stored = listStoredCollections()
-  const collections = stored.map(s => ({
+  const db     = getDB()
+  const stored = await listStoredCollections()
+  const collections = await Promise.all(stored.map(async s => ({
     name:  s.name,
-    count: (() => { try { return (getSQLite().query(`SELECT COUNT(*) as c FROM "${s.name}"`).get() as any).c } catch { return 0 } })(),
-  }))
+    count: await countTable(db, s.name),
+  })))
   return c.json({ collections, realtimeConnections: realtimeService.connectionCount })
 })
 
 adminRouter.get('/api/collections', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
-  const stored = listStoredCollections()
-  return c.json(stored.map(s => ({
+  const db     = getDB()
+  const stored = await listStoredCollections()
+  const collections = await Promise.all(stored.map(async s => ({
     name:   s.name,
     fields: s.schema.fields,
-    count:  (() => { try { return (getSQLite().query(`SELECT COUNT(*) as c FROM "${s.name}"`).get() as any).c } catch { return 0 } })(),
+    count:  await countTable(db, s.name),
   })))
+  return c.json(collections)
 })
 
 adminRouter.post('/api/collections', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
   const { name, schema } = await c.req.json<{ name: string; schema: CollectionSchemaJSON }>()
-  createCollection(name, schema)
+  await createCollection(name, schema)
   return c.json({ ok: true, name }, 201)
 })
 
@@ -127,14 +139,14 @@ adminRouter.put('/api/collections/:name', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
   const { schema } = await c.req.json<{ schema: CollectionSchemaJSON }>()
-  updateCollection(c.req.param('name'), schema)
+  await updateCollection(c.req.param('name'), schema)
   return c.json({ ok: true })
 })
 
 adminRouter.delete('/api/collections/:name', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
-  deleteCollection(c.req.param('name'))
+  await deleteCollection(c.req.param('name'))
   return c.json({ ok: true })
 })
 
@@ -145,10 +157,10 @@ adminRouter.get('/api/collections/:name/records', async (c) => {
   const limit  = Math.min(Number(c.req.query('limit')  ?? 20), 500)
   const offset = Number(c.req.query('offset') ?? 0)
   try {
-    const db    = getSQLite()
-    const items = db.query(`SELECT * FROM "${name}" ORDER BY created_at DESC LIMIT ? OFFSET ?`).all(limit, offset)
-    const total = (db.query(`SELECT COUNT(*) as c FROM "${name}"`).get() as any).c
-    return c.json({ items, total, limit, offset })
+    const db       = getDB()
+    const items    = await db.query(`SELECT * FROM ${db.quoteIdent(name)} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [limit, offset])
+    const totalRow = await db.get<{ c: number }>(`SELECT COUNT(*) as c FROM ${db.quoteIdent(name)}`)
+    return c.json({ items, total: totalRow?.c ?? 0, limit, offset })
   } catch (e: any) {
     return c.json({ error: e.message }, 400)
   }
@@ -159,10 +171,10 @@ adminRouter.get('/api/users', async (c) => {
   requireAdmin(auth)
   const limit  = Math.min(Number(c.req.query('limit') ?? 50), 500)
   const offset = Number(c.req.query('offset') ?? 0)
-  const db     = getSQLite()
-  const items  = db.query('SELECT id, email, role, verified, created_at FROM _ob_users ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset)
-  const total  = (db.query('SELECT COUNT(*) as c FROM _ob_users').get() as any).c
-  return c.json({ items, total })
+  const db        = getDB()
+  const items     = await db.query('SELECT id, email, role, verified, created_at FROM _ob_users ORDER BY created_at DESC LIMIT ? OFFSET ?', [limit, offset])
+  const totalRow  = await db.get<{ c: number }>('SELECT COUNT(*) as c FROM _ob_users')
+  return c.json({ items, total: totalRow?.c ?? 0 })
 })
 
 // POST /admin/api/users — create user
@@ -180,8 +192,8 @@ adminRouter.patch('/api/users/:id', async (c) => {
   const auth = await extractAuth(c.req.raw)
   requireAdmin(auth)
   const { role, password, verified } = await c.req.json<{ role?: string; password?: string; verified?: boolean }>()
-  const db = getSQLite()
-  const user = db.query('SELECT * FROM _ob_users WHERE id = ?').get(c.req.param('id')) as any
+  const db = getDB()
+  const user = await db.get<any>('SELECT * FROM _ob_users WHERE id = ?', [c.req.param('id')])
   if (!user) return c.json({ error: 'User not found' }, 404)
 
   const updates: string[] = []
@@ -196,12 +208,12 @@ adminRouter.patch('/api/users/:id', async (c) => {
   }
 
   if (updates.length > 0) {
-    updates.push('updated_at = datetime(\'now\')')
+    updates.push(`updated_at = ${db.nowSQL()}`)
     params.push(c.req.param('id'))
-    db.run(`UPDATE _ob_users SET ${updates.join(', ')} WHERE id = ?`, params)
+    await db.run(`UPDATE _ob_users SET ${updates.join(', ')} WHERE id = ?`, params)
   }
 
-  const updated = db.query('SELECT id, email, role, verified, created_at FROM _ob_users WHERE id = ?').get(c.req.param('id'))
+  const updated = await db.get('SELECT id, email, role, verified, created_at FROM _ob_users WHERE id = ?', [c.req.param('id')])
   return c.json({ user: updated })
 })
 
@@ -215,10 +227,10 @@ adminRouter.delete('/api/users/:id', async (c) => {
     return c.json({ error: 'Cannot delete your own account' }, 400)
   }
 
-  const db = getSQLite()
-  const user = db.query('SELECT id FROM _ob_users WHERE id = ?').get(c.req.param('id'))
+  const db = getDB()
+  const user = await db.get('SELECT id FROM _ob_users WHERE id = ?', [c.req.param('id')])
   if (!user) return c.json({ error: 'User not found' }, 404)
 
-  db.run('DELETE FROM _ob_users WHERE id = ?', [c.req.param('id')])
+  await db.run('DELETE FROM _ob_users WHERE id = ?', [c.req.param('id')])
   return c.json({ ok: true })
 })
