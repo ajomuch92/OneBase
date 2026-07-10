@@ -37,6 +37,36 @@ ONEBASE_DB_URL=postgres://user:password@localhost:5432/onebase
 Bun loads `.env` automatically — no extra package needed. See
 `.env.example` for the full list of variables.
 
+## Rate limiting
+
+Every route under `/api/*` and `/admin/*` is protected by an in-memory,
+per-IP rate limiter (`/health` and `/files/*` are excluded — health checks
+and static file serving have different traffic shapes). `POST
+/api/auth/register` and `POST /api/auth/login` additionally get a much
+tighter budget on top of that, since those are the endpoints someone would
+actually try to brute-force.
+
+Responses include standard `RateLimit-*` headers, and requests over the
+limit get `429 Too Many Requests` with a `Retry-After` header.
+
+Configure it via `.env`:
+
+```bash
+ONEBASE_RATE_LIMIT_WINDOW_MS=60000   # window size, ms
+ONEBASE_RATE_LIMIT_MAX=300           # requests per window per IP, /api + /admin
+
+ONEBASE_AUTH_RATE_LIMIT_WINDOW_MS=60000
+ONEBASE_AUTH_RATE_LIMIT_MAX=10       # requests per window per IP, login/register only
+
+ONEBASE_RATE_LIMIT_DISABLED=false    # set "true" to disable entirely
+```
+
+The limiter is in-process, which is the right default for OneBase's
+single-binary model. If you run multiple OneBase instances behind a load
+balancer, put a shared limiter (e.g. Redis-backed, or your gateway/proxy's
+own) in front instead — each instance would otherwise track its own
+independent counters.
+
 ## Define a collection
 
 ```typescript
