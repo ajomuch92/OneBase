@@ -17,12 +17,15 @@
     "complete-js-utils": "^1.1.2",
     "hono": "^4.2.0",
     "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.22.6",
+    "pg": "^8.22.0",
     "zod": "^3.22.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
     "@types/bun": "^1.3.14",
     "@types/jsonwebtoken": "^9.0.6",
+    "@types/pg": "^8.20.0",
     "bun-types": "latest"
   }
 }
