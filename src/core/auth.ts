@@ -1,4 +1,4 @@
-import { getSQLite } from './db.ts'
+import { getDB } from './db.ts'
 import { sign, verify } from 'jsonwebtoken'
 import { hash, compare } from 'bcryptjs'
 
@@ -16,14 +16,14 @@ export interface AuthTokens {
 
 export const authService = {
   async register(email: string, password: string, role = 'user'): Promise<AuthUser> {
-    const db = getSQLite()
-    if (db.query('SELECT id FROM _ob_users WHERE email = ?').get(email.toLowerCase())) {
+    const db = getDB()
+    if (await db.get('SELECT id FROM _ob_users WHERE email = ?', [email.toLowerCase()])) {
       throw new Error('Email already in use')
     }
     if (password.length < 8) throw new Error('Password must be at least 8 characters')
     const id           = crypto.randomUUID()
     const passwordHash = await hash(password, BCRYPT_ROUNDS)
-    db.run(
+    await db.run(
       'INSERT INTO _ob_users (id, email, password_hash, role) VALUES (?, ?, ?, ?)',
       [id, email.toLowerCase(), passwordHash, role]
     )
@@ -31,40 +31,41 @@ export const authService = {
   },
 
   async login(email: string, password: string): Promise<AuthTokens> {
-    const db   = getSQLite()
-    const user = db.query('SELECT * FROM _ob_users WHERE email = ?').get(email.toLowerCase()) as any
+    const db   = getDB()
+    const user = await db.get<any>('SELECT * FROM _ob_users WHERE email = ?', [email.toLowerCase()])
     if (!user) throw new Error('Invalid credentials')
     if (!await compare(password, user.password_hash)) throw new Error('Invalid credentials')
     return this.createTokens(user)
   },
 
   async createTokens(user: any): Promise<AuthTokens> {
-    const db        = getSQLite()
+    const db        = getDB()
     const expiresAt = new Date(Date.now() + 7 * 86400000).toISOString()
     const token     = sign({ sub: user.id, email: user.email, role: user.role }, JWT_SECRET, { expiresIn: JWT_EXPIRES_IN })
-    db.run('INSERT INTO _ob_sessions (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)',
+    await db.run('INSERT INTO _ob_sessions (id, user_id, token, expires_at) VALUES (?, ?, ?, ?)',
       [crypto.randomUUID(), user.id, token, expiresAt])
     return { token, expiresAt, user: { id: user.id, email: user.email, role: user.role, verified: !!user.verified } }
   },
 
   async verifyToken(token: string): Promise<AuthUser> {
-    const db = getSQLite()
+    const db = getDB()
     let payload: any
     try { payload = verify(token, JWT_SECRET) } catch { throw new Error('Invalid or expired token') }
-    const session = db.query('SELECT id FROM _ob_sessions WHERE token = ? AND expires_at > ?')
-      .get(token, new Date().toISOString())
+    const session = await db.get('SELECT id FROM _ob_sessions WHERE token = ? AND expires_at > ?',
+      [token, new Date().toISOString()])
     if (!session) throw new Error('Session expired or revoked')
-    const user = db.query('SELECT * FROM _ob_users WHERE id = ?').get(payload.sub) as any
+    const user = await db.get<any>('SELECT * FROM _ob_users WHERE id = ?', [payload.sub])
     if (!user) throw new Error('User not found')
     return { id: user.id, email: user.email, role: user.role, verified: !!user.verified }
   },
 
   async logout(token: string) {
-    getSQLite().run('DELETE FROM _ob_sessions WHERE token = ?', [token])
+    await getDB().run('DELETE FROM _ob_sessions WHERE token = ?', [token])
   },
 
-  userCount(): number {
-    return (getSQLite().query('SELECT COUNT(*) as c FROM _ob_users').get() as any).c
+  async userCount(): Promise<number> {
+    const row = await getDB().get<{ c: number }>('SELECT COUNT(*) as c FROM _ob_users')
+    return row?.c ?? 0
   },
 }
 

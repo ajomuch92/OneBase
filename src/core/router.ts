@@ -71,15 +71,15 @@ function registerCollectionRoutes(api: Hono) {
       if (!['limit', 'offset', 'sort', 'order'].includes(k)) filter[k] = v
     }
     const svc     = getCollection(name)
-    const records = svc.list({ filter, sort, order, limit, offset })
-    const total   = svc.count(filter)
+    const records = await svc.list({ filter, sort, order, limit, offset })
+    const total   = await svc.count(filter)
     return c.json({ items: records, total, limit, offset })
   })
 
   api.get('/:collection/:id', async (c) => {
     const { collection, id } = c.req.param()
     const auth   = await extractAuth(c.req.raw)
-    const record = getCollection(collection).getById(id)
+    const record = await getCollection(collection).getById(id)
     if (!record) return c.json({ error: 'Not found' }, 404)
     await permissionEngine.assert(collection, 'read', auth?.user ?? null, record)
     return c.json(record)
@@ -99,7 +99,7 @@ function registerCollectionRoutes(api: Hono) {
   api.patch('/:collection/:id', async (c) => {
     const { collection, id } = c.req.param()
     const auth     = await extractAuth(c.req.raw)
-    const existing = getCollection(collection).getById(id)
+    const existing = await getCollection(collection).getById(id)
     if (!existing) return c.json({ error: 'Not found' }, 404)
     const body = await c.req.json<Record<string, unknown>>()
     await permissionEngine.assert(collection, 'update', auth?.user ?? null, existing, body)
@@ -112,7 +112,7 @@ function registerCollectionRoutes(api: Hono) {
   api.delete('/:collection/:id', async (c) => {
     const { collection, id } = c.req.param()
     const auth     = await extractAuth(c.req.raw)
-    const existing = getCollection(collection).getById(id)
+    const existing = await getCollection(collection).getById(id)
     if (!existing) return c.json({ error: 'Not found' }, 404)
     await permissionEngine.assert(collection, 'delete', auth?.user ?? null, existing)
     const ctx: HookContext = { userId: auth?.user.id, role: auth?.user.role, collection }
@@ -124,7 +124,7 @@ function registerCollectionRoutes(api: Hono) {
   api.post('/:collection/:id/upload', async (c) => {
     const { collection, id } = c.req.param()
     const auth     = await extractAuth(c.req.raw)
-    const existing = getCollection(collection).getById(id)
+    const existing = await getCollection(collection).getById(id)
     if (!existing) return c.json({ error: 'Not found' }, 404)
     await permissionEngine.assert(collection, 'upload', auth?.user ?? null, existing)
     const field = c.req.query('field')

@@ -1,6 +1,6 @@
 import { join, extname } from 'path'
 import { mkdirSync, existsSync, unlinkSync } from 'fs'
-import { getSQLite } from './db.ts'
+import { getDB } from './db.ts'
 
 const UPLOAD_DIR    = process.env.ONEBASE_UPLOAD_DIR ?? './uploads'
 const MAX_FILE_SIZE = Number(process.env.ONEBASE_MAX_FILE_SIZE ?? 10 * 1024 * 1024)
@@ -45,7 +45,7 @@ export const uploadService = {
       size: file.size, collection: opts.collection, recordId: opts.recordId,
       field: opts.field, uploadedBy: opts.userId, createdAt: new Date().toISOString(),
     }
-    getSQLite().run(
+    await getDB().run(
       `INSERT INTO _ob_files (id, filename, stored_name, path, url, mime_type, size, collection, record_id, field, uploaded_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, file.name, storedName, record.path, url, record.mimeType, file.size,
@@ -60,18 +60,19 @@ export const uploadService = {
     return new Response(Bun.file(fullPath))
   },
 
-  deleteFile(id: string) {
-    const db  = getSQLite()
-    const row = db.query('SELECT * FROM _ob_files WHERE id = ?').get(id) as any
+  async deleteFile(id: string) {
+    const db  = getDB()
+    const row = await db.get<any>('SELECT * FROM _ob_files WHERE id = ?', [id])
     if (!row) throw new Error('File not found')
     const fullPath = join(UPLOAD_DIR, row.path)
     if (existsSync(fullPath)) unlinkSync(fullPath)
-    db.run('DELETE FROM _ob_files WHERE id = ?', [id])
+    await db.run('DELETE FROM _ob_files WHERE id = ?', [id])
   },
 
-  listForRecord(collection: string, recordId: string) {
-    return getSQLite()
-      .query('SELECT * FROM _ob_files WHERE collection = ? AND record_id = ? ORDER BY created_at DESC')
-      .all(collection, recordId) as UploadedFile[]
+  async listForRecord(collection: string, recordId: string) {
+    return getDB().query<UploadedFile>(
+      'SELECT * FROM _ob_files WHERE collection = ? AND record_id = ? ORDER BY created_at DESC',
+      [collection, recordId],
+    )
   },
 }
