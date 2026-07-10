@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from 'hono/jsx'
 import { render } from 'hono/jsx/dom'
 import { useLocation } from './hooks/useLocation.ts'
+import { PasswordInput } from './components/PasswordInput.tsx'
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 
@@ -907,7 +908,7 @@ function UserModal({ user, onClose, onSave }: {
 
       <div class="ob-field-row">
         <label class="ob-label">{isEdit ? 'New password (leave blank to keep current)' : 'Password *'}</label>
-        <input class="ob-input" type="password" placeholder="••••••••"
+        <PasswordInput placeholder="••••••••"
           value={password} onInput={(e: any) => setPassword(e.target.value)} />
       </div>
 
@@ -1026,7 +1027,7 @@ function Login({ onLogin }: { onLogin: () => void }) {
         </div>
         <div class="ob-field-row">
           <label class="ob-label">Password</label>
-          <input class="ob-input" type="password" ref={pwdRef} placeholder="••••••••"
+          <PasswordInput inputRef={pwdRef} placeholder="••••••••"
             value={password} onInput={(e: any) => setPassword(e.target.value)}
             onKeyDown={(e: any) => e.key === 'Enter' && handleLogin()} />
         </div>
