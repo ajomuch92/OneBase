@@ -13,6 +13,30 @@ bun dev
 
 Server starts at `http://localhost:3000`. Admin UI at `/admin`.
 
+## Database
+
+OneBase supports SQLite (default), MySQL, and PostgreSQL. Configure the
+engine via environment variables — copy `.env.example` to `.env` and set:
+
+```bash
+# SQLite (default) — nothing else required
+ONEBASE_DB_CLIENT=sqlite
+ONEBASE_DB_PATH=./onebase.db
+
+# MySQL
+ONEBASE_DB_CLIENT=mysql
+ONEBASE_DB_URL=mysql://user:password@localhost:3306/onebase
+# ...or ONEBASE_DB_HOST/PORT/USER/PASSWORD/NAME/SSL individually
+
+# PostgreSQL
+ONEBASE_DB_CLIENT=postgres
+ONEBASE_DB_URL=postgres://user:password@localhost:5432/onebase
+# ...or ONEBASE_DB_HOST/PORT/USER/PASSWORD/NAME/SSL individually
+```
+
+Bun loads `.env` automatically — no extra package needed. See
+`.env.example` for the full list of variables.
+
 ## Define a collection
 
 ```typescript
