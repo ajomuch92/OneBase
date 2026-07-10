@@ -1,5 +1,5 @@
 import pg from 'pg'
-import type { DBAdapter, ColumnInfo, FieldDefinition } from './types.ts'
+import type { DBAdapter, ColumnInfo, IndexInfo, FieldDefinition } from './types.ts'
 import type { DBConfig } from '../config.ts'
 
 // By default node-postgres parses TIMESTAMP/TIMESTAMPTZ columns into JS Date
@@ -95,7 +95,10 @@ export class PostgresAdapter implements DBAdapter {
        ORDER BY ordinal_position`,
       [name],
     )
-    const uniqueCols = await this.getUniqueColumnNames(name)
+    const indexes = await this.listIndexes(name)
+    const uniqueCols = new Set(
+      indexes.filter(i => i.unique && i.columns.length === 1).map(i => i.columns[0]),
+    )
     return cols.map(c => ({
       name:         c.column_name,
       sqlType:      c.data_type.toUpperCase(),
@@ -105,24 +108,36 @@ export class PostgresAdapter implements DBAdapter {
     }))
   }
 
-  private async getUniqueColumnNames(table: string): Promise<Set<string>> {
-    const rows = await this.query<{ index_name: string; columns: string[] }>(
-      `SELECT i.relname as index_name, array_agg(a.attname ORDER BY a.attnum) as columns
+  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
+    const indexes = await this.listIndexes(table)
+    return indexes.some(i => i.unique && i.columns.length === 1 && i.columns[0] === column)
+  }
+
+  async listIndexes(table: string): Promise<IndexInfo[]> {
+    // `unnest(ix.indkey) WITH ORDINALITY` preserves the index's own column
+    // order (which for composite indexes differs from the table's column
+    // order) — plain `array_agg(... ORDER BY a.attnum)` would get that wrong.
+    const rows = await this.query<{ index_name: string; columns: string[]; is_unique: boolean }>(
+      `SELECT i.relname as index_name, ix.indisunique as is_unique,
+              array_agg(a.attname ORDER BY k.ord) as columns
        FROM pg_class t
        JOIN pg_index ix ON t.oid = ix.indrelid
        JOIN pg_class i  ON i.oid = ix.indexrelid
-       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(ix.indkey)
-       WHERE t.relname = ? AND ix.indisunique AND NOT ix.indisprimary
-       GROUP BY i.relname`,
+       JOIN LATERAL unnest(ix.indkey) WITH ORDINALITY AS k(attnum, ord) ON true
+       JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
+       WHERE t.relname = ? AND NOT ix.indisprimary
+       GROUP BY i.relname, ix.indisunique`,
       [table],
     )
-    const names = new Set<string>()
-    for (const r of rows) if (r.columns.length === 1) names.add(r.columns[0])
-    return names
+    return rows.map(r => ({ name: r.index_name, columns: r.columns, unique: r.is_unique }))
   }
 
-  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
-    return (await this.getUniqueColumnNames(table)).has(column)
+  async createIndex(table: string, name: string, columns: string[], unique: boolean): Promise<void> {
+    await this.exec(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table}(${columns.join(', ')})`)
+  }
+
+  async dropIndex(table: string, name: string): Promise<void> {
+    await this.exec(`DROP INDEX IF EXISTS ${name}`)
   }
 
   async createTable(name: string, fields: Record<string, FieldDefinition>): Promise<void> {
@@ -153,11 +168,11 @@ export class PostgresAdapter implements DBAdapter {
   }
 
   async addUniqueIndex(table: string, col: string): Promise<void> {
-    await this.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_${col} ON ${table}(${col})`)
+    await this.createIndex(table, `idx_${table}_${col}`, [col], true)
   }
 
   async dropUniqueIndex(table: string, col: string): Promise<void> {
-    await this.exec(`DROP INDEX IF EXISTS idx_${table}_${col}`)
+    await this.dropIndex(table, `idx_${table}_${col}`)
   }
 
   async insertIgnore(table: string, cols: string[], values: unknown[]): Promise<void> {

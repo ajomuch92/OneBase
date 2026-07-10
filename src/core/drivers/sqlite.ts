@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite'
-import type { DBAdapter, ColumnInfo, FieldDefinition } from './types.ts'
+import type { DBAdapter, ColumnInfo, IndexInfo, FieldDefinition } from './types.ts'
 
 const TYPE_MAP: Record<FieldDefinition['type'], string> = {
   string: 'TEXT', text: 'TEXT', number: 'REAL',
@@ -70,7 +70,10 @@ export class SQLiteAdapter implements DBAdapter {
 
   async getColumns(name: string): Promise<ColumnInfo[]> {
     const cols = this.conn.query(`PRAGMA table_info(${name})`).all() as SQLiteColumnRow[]
-    const uniqueCols = await this.getUniqueColumnNames(name)
+    const indexes = await this.listIndexes(name)
+    const uniqueCols = new Set(
+      indexes.filter(i => i.unique && i.columns.length === 1).map(i => i.columns[0]),
+    )
     return cols.map(c => ({
       name:         c.name,
       sqlType:      c.type.toUpperCase(),
@@ -80,19 +83,32 @@ export class SQLiteAdapter implements DBAdapter {
     }))
   }
 
-  private async getUniqueColumnNames(table: string): Promise<Set<string>> {
-    const indexes = this.conn.query(`PRAGMA index_list(${table})`).all() as { name: string; unique: number }[]
-    const names = new Set<string>()
-    for (const idx of indexes) {
-      if (!idx.unique) continue
-      const cols = this.conn.query(`PRAGMA index_info(${idx.name})`).all() as { name: string }[]
-      if (cols.length === 1) names.add(cols[0].name)
-    }
-    return names
+  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
+    const indexes = await this.listIndexes(table)
+    return indexes.some(i => i.unique && i.columns.length === 1 && i.columns[0] === column)
   }
 
-  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
-    return (await this.getUniqueColumnNames(table)).has(column)
+  async listIndexes(table: string): Promise<IndexInfo[]> {
+    const indexes = this.conn.query(`PRAGMA index_list(${table})`).all() as { name: string; unique: number; origin: string }[]
+    const result: IndexInfo[] = []
+    for (const idx of indexes) {
+      if (idx.origin === 'pk') continue
+      const cols = this.conn.query(`PRAGMA index_info(${idx.name})`).all() as { name: string; seqno: number }[]
+      result.push({
+        name:    idx.name,
+        columns: cols.sort((a, b) => a.seqno - b.seqno).map(c => c.name),
+        unique:  !!idx.unique,
+      })
+    }
+    return result
+  }
+
+  async createIndex(table: string, name: string, columns: string[], unique: boolean): Promise<void> {
+    this.conn.run(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${name} ON ${table}(${columns.join(', ')})`)
+  }
+
+  async dropIndex(table: string, name: string): Promise<void> {
+    this.conn.run(`DROP INDEX IF EXISTS ${name}`)
   }
 
   async createTable(name: string, fields: Record<string, FieldDefinition>): Promise<void> {
@@ -142,11 +158,11 @@ export class SQLiteAdapter implements DBAdapter {
   }
 
   async addUniqueIndex(table: string, col: string): Promise<void> {
-    this.conn.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_${table}_${col} ON ${table}(${col})`)
+    await this.createIndex(table, `idx_${table}_${col}`, [col], true)
   }
 
   async dropUniqueIndex(table: string, col: string): Promise<void> {
-    this.conn.run(`DROP INDEX IF EXISTS idx_${table}_${col}`)
+    await this.dropIndex(table, `idx_${table}_${col}`)
   }
 
   async insertIgnore(table: string, cols: string[], values: unknown[]): Promise<void> {

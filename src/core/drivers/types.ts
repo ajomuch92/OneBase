@@ -32,6 +32,12 @@ export interface ColumnInfo {
   defaultValue: string | null
 }
 
+export interface IndexInfo {
+  name:    string
+  columns: string[]   // in index-key order — matters for composite indexes
+  unique:  boolean
+}
+
 export interface DBAdapter {
   readonly dialect: Dialect
 
@@ -64,6 +70,12 @@ export interface DBAdapter {
   modifyColumnType(table: string, col: string, field: FieldDefinition): Promise<void>
   addUniqueIndex(table: string, col: string): Promise<void>
   dropUniqueIndex(table: string, col: string): Promise<void>
+
+  // ── General-purpose index management (arbitrary name/columns/uniqueness,
+  //    used by the admin UI's Indexes panel) ──────────────────────────────
+  listIndexes(table: string): Promise<IndexInfo[]>
+  createIndex(table: string, name: string, columns: string[], unique: boolean): Promise<void>
+  dropIndex(table: string, name: string): Promise<void>
 
   // ── Upserts used by system tables ───────────────────────────────────────
   insertIgnore(table: string, cols: string[], values: unknown[]): Promise<void>

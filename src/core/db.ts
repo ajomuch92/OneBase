@@ -2,7 +2,7 @@ import type { DBAdapter } from './drivers/types.ts'
 import type { DBConfig } from './config.ts'
 import { createAdapter } from './drivers/index.ts'
 
-export type { FieldType, FieldDefinition, CollectionSchemaJSON, ColumnInfo, Dialect, DBAdapter } from './drivers/types.ts'
+export type { FieldType, FieldDefinition, CollectionSchemaJSON, ColumnInfo, IndexInfo, Dialect, DBAdapter } from './drivers/types.ts'
 
 // ─── Singleton ────────────────────────────────────────────────────────────────
 

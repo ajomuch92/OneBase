@@ -1,5 +1,5 @@
 import mysql from 'mysql2/promise'
-import type { DBAdapter, ColumnInfo, FieldDefinition } from './types.ts'
+import type { DBAdapter, ColumnInfo, IndexInfo, FieldDefinition } from './types.ts'
 import type { DBConfig } from '../config.ts'
 
 const TYPE_MAP: Record<FieldDefinition['type'], string> = {
@@ -87,7 +87,10 @@ export class MySQLAdapter implements DBAdapter {
        ORDER BY ORDINAL_POSITION`,
       [name],
     )
-    const uniqueCols = await this.getUniqueColumnNames(name)
+    const indexes = await this.listIndexes(name)
+    const uniqueCols = new Set(
+      indexes.filter(i => i.unique && i.columns.length === 1).map(i => i.columns[0]),
+    )
     return cols.map(c => ({
       name:         c.COLUMN_NAME,
       sqlType:      c.COLUMN_TYPE.toUpperCase(),
@@ -97,22 +100,39 @@ export class MySQLAdapter implements DBAdapter {
     }))
   }
 
-  private async getUniqueColumnNames(table: string): Promise<Set<string>> {
-    const rows = await this.query<{ INDEX_NAME: string; COLUMN_NAME: string; cnt: number }>(
-      `SELECT s.INDEX_NAME, s.COLUMN_NAME,
-              (SELECT COUNT(*) FROM information_schema.STATISTICS s2
-               WHERE s2.TABLE_SCHEMA = s.TABLE_SCHEMA AND s2.TABLE_NAME = s.TABLE_NAME AND s2.INDEX_NAME = s.INDEX_NAME) as cnt
-       FROM information_schema.STATISTICS s
-       WHERE s.TABLE_SCHEMA = DATABASE() AND s.TABLE_NAME = ? AND s.NON_UNIQUE = 0 AND s.INDEX_NAME != 'PRIMARY'`,
-      [table],
-    )
-    const names = new Set<string>()
-    for (const r of rows) if (r.cnt === 1) names.add(r.COLUMN_NAME)
-    return names
+  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
+    const indexes = await this.listIndexes(table)
+    return indexes.some(i => i.unique && i.columns.length === 1 && i.columns[0] === column)
   }
 
-  async hasUniqueIndex(table: string, column: string): Promise<boolean> {
-    return (await this.getUniqueColumnNames(table)).has(column)
+  async listIndexes(table: string): Promise<IndexInfo[]> {
+    const rows = await this.query<{ INDEX_NAME: string; COLUMN_NAME: string; NON_UNIQUE: number; SEQ_IN_INDEX: number }>(
+      `SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE, SEQ_IN_INDEX
+       FROM information_schema.STATISTICS
+       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME != 'PRIMARY'
+       ORDER BY INDEX_NAME, SEQ_IN_INDEX`,
+      [table],
+    )
+    const byName = new Map<string, IndexInfo>()
+    for (const r of rows) {
+      let idx = byName.get(r.INDEX_NAME)
+      if (!idx) {
+        idx = { name: r.INDEX_NAME, columns: [], unique: r.NON_UNIQUE === 0 }
+        byName.set(r.INDEX_NAME, idx)
+      }
+      idx.columns.push(r.COLUMN_NAME)
+    }
+    return Array.from(byName.values())
+  }
+
+  async createIndex(table: string, name: string, columns: string[], unique: boolean): Promise<void> {
+    if ((await this.listIndexes(table)).some(i => i.name === name)) return
+    await this.exec(`CREATE ${unique ? 'UNIQUE ' : ''}INDEX ${name} ON ${table}(${columns.join(', ')})`)
+  }
+
+  async dropIndex(table: string, name: string): Promise<void> {
+    if (!(await this.listIndexes(table)).some(i => i.name === name)) return
+    await this.exec(`ALTER TABLE ${table} DROP INDEX ${name}`)
   }
 
   async createTable(name: string, fields: Record<string, FieldDefinition>): Promise<void> {
@@ -142,13 +162,11 @@ export class MySQLAdapter implements DBAdapter {
   }
 
   async addUniqueIndex(table: string, col: string): Promise<void> {
-    if (await this.hasUniqueIndex(table, col)) return
-    await this.exec(`CREATE UNIQUE INDEX idx_${table}_${col} ON ${table}(${col})`)
+    await this.createIndex(table, `idx_${table}_${col}`, [col], true)
   }
 
   async dropUniqueIndex(table: string, col: string): Promise<void> {
-    if (!(await this.hasUniqueIndex(table, col))) return
-    await this.exec(`ALTER TABLE ${table} DROP INDEX idx_${table}_${col}`)
+    await this.dropIndex(table, `idx_${table}_${col}`)
   }
 
   async insertIgnore(table: string, cols: string[], values: unknown[]): Promise<void> {
