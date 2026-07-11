@@ -39,6 +39,7 @@ export interface ${capitalize(def.name)}Record {
 ${fields}
   created_at: string
   updated_at: string
+  expand?: Record<string, any>
 }
 
 export interface Create${capitalize(def.name)}Input {
@@ -81,6 +82,8 @@ export interface ListOptions {
   order?:  'asc' | 'desc'
   limit?:  number
   offset?: number
+  /** PocketBase-style relation expand, e.g. "author" or "author,comments.author" */
+  expand?: string
 }
 
 export interface ListResult<T> {
@@ -103,14 +106,16 @@ function createCollectionClient<T, CreateInput>(
       if (opts.offset) qs.set('offset', String(opts.offset))
       if (opts.sort)   qs.set('sort',   opts.sort)
       if (opts.order)  qs.set('order',  opts.order)
+      if (opts.expand) qs.set('expand', opts.expand)
       if (opts.filter) {
         for (const [k, v] of Object.entries(opts.filter)) qs.set(k, String(v))
       }
       return sdk.fetch(\`/api/\${collection}?\${qs}\`)
     },
 
-    async getById(id: string): Promise<T> {
-      return sdk.fetch(\`/api/\${collection}/\${id}\`)
+    async getById(id: string, expand?: string): Promise<T> {
+      const qs = expand ? \`?expand=\${encodeURIComponent(expand)}\` : ''
+      return sdk.fetch(\`/api/\${collection}/\${id}\${qs}\`)
     },
 
     async create(data: CreateInput): Promise<T> {

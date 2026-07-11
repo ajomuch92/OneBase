@@ -3,7 +3,7 @@ import { cors } from 'hono/cors'
 import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { extractAuth, requireAuth } from './auth.ts'
-import { getCollection, listStoredCollections } from './collections.ts'
+import { getCollection, listStoredCollections, expandRecords } from './collections.ts'
 import { realtimeService } from './realtime.ts'
 import { permissionEngine } from './permissions.ts'
 import { uploadService } from './uploads.ts'
@@ -79,20 +79,23 @@ function registerCollectionRoutes(api: Hono) {
     const order  = (qs.order === 'asc' ? 'asc' : 'desc') as 'asc' | 'desc'
     const filter: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(qs)) {
-      if (!['limit', 'offset', 'sort', 'order'].includes(k)) filter[k] = v
+      if (!['limit', 'offset', 'sort', 'order', 'expand'].includes(k)) filter[k] = v
     }
     const svc     = getCollection(name)
-    const records = await svc.list({ filter, sort, order, limit, offset })
+    let records   = await svc.list({ filter, sort, order, limit, offset })
     const total   = await svc.count(filter)
+    if (qs.expand) records = await expandRecords(name, records, qs.expand, auth?.user ?? null)
     return c.json({ items: records, total, limit, offset })
   })
 
   api.get('/:collection/:id', async (c) => {
     const { collection, id } = c.req.param()
     const auth   = await extractAuth(c.req.raw)
-    const record = await getCollection(collection).getById(id)
+    let record = await getCollection(collection).getById(id)
     if (!record) return c.json({ error: 'Not found' }, 404)
     await permissionEngine.assert(collection, 'read', auth?.user ?? null, record)
+    const expand = c.req.query('expand')
+    if (expand) [record] = await expandRecords(collection, [record], expand, auth?.user ?? null)
     return c.json(record)
   })
 

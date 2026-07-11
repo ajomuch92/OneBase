@@ -2,6 +2,7 @@ import { getDB } from './db.ts'
 import type { CollectionSchemaJSON, FieldDefinition } from './db.ts'
 import type { CollectionPermissions } from './permissions.ts'
 import { permissionEngine } from './permissions.ts'
+import type { AuthUser } from './auth.ts'
 
 export interface CollectionRecord {
   id: string; [key: string]: unknown; created_at: string; updated_at: string
@@ -193,3 +194,94 @@ export class CollectionService {
 }
 
 export function getCollection(name: string) { return new CollectionService(name) }
+
+// ─── Relation expand ──────────────────────────────────────────────────────────
+
+// Registry entries only cover code-defined collections — admin-UI-created
+// ones only ever exist in `_ob_collections`, so fall back to that stored
+// schema to find a collection's field definitions either way.
+async function getFieldsForCollection(name: string): Promise<Record<string, FieldDefinition>> {
+  const def = registry.get(name)
+  if (def) return def.fields
+  const row = await getDB().get<{ schema: string }>('SELECT schema FROM _ob_collections WHERE name = ?', [name])
+  return row ? (JSON.parse(row.schema) as CollectionSchemaJSON).fields : {}
+}
+
+/**
+ * PocketBase-style `expand` — resolves `relation` fields into their full
+ * related records, attached under `record.expand[fieldName]`. `expandParam`
+ * is a comma-separated list of field names; dot-notation expands further
+ * levels on the related collection (`expand=author,comments.author`).
+ *
+ * Related records the caller isn't allowed to `read` are silently left
+ * unexpanded rather than failing the whole request — expand should never
+ * be a way to see data a direct fetch of that record would deny.
+ */
+export async function expandRecords(
+  collection: string,
+  records: CollectionRecord[],
+  expandParam: string,
+  user: AuthUser | null,
+): Promise<CollectionRecord[]> {
+  const paths = expandParam.split(',').map(p => p.trim()).filter(Boolean)
+  if (!paths.length || !records.length) return records
+
+  // Group by first path segment so "comments.author" and "comments.tags"
+  // share a single fetch of `comments` instead of two.
+  const byRoot = new Map<string, string[]>()
+  for (const path of paths) {
+    const [root, ...rest] = path.split('.')
+    if (!root) continue
+    const nested = byRoot.get(root) ?? []
+    if (rest.length) nested.push(rest.join('.'))
+    byRoot.set(root, nested)
+  }
+
+  const fields = await getFieldsForCollection(collection)
+  const db     = getDB()
+
+  for (const [fieldName, nestedPaths] of byRoot) {
+    const field = fields[fieldName]
+    if (!field || field.type !== 'relation' || !field.collection) continue
+    // A relation field can name a target collection that was renamed/
+    // deleted since the field was defined — skip rather than 500 the
+    // whole request over one stale reference.
+    if (!(await db.tableExists(field.collection))) continue
+
+    const ids = [...new Set(
+      records.map(r => r[fieldName]).filter((v): v is string => typeof v === 'string' && v !== ''),
+    )]
+    if (!ids.length) continue
+
+    const placeholders = ids.map(() => '?').join(', ')
+    let related = await db.query<CollectionRecord>(
+      `SELECT * FROM ${field.collection} WHERE id IN (${placeholders})`, ids,
+    )
+
+    const readable: CollectionRecord[] = []
+    for (const rel of related) {
+      try {
+        await permissionEngine.assert(field.collection, 'read', user, rel)
+        readable.push(rel)
+      } catch { /* not readable — leave unexpanded */ }
+    }
+    related = readable
+
+    if (nestedPaths.length) {
+      related = await expandRecords(field.collection, related, nestedPaths.join(','), user)
+    }
+
+    const byId = new Map(related.map(r => [r.id, r]))
+    for (const record of records) {
+      const relId = record[fieldName]
+      if (typeof relId !== 'string') continue
+      const rel = byId.get(relId)
+      if (!rel) continue
+      const expand = (record.expand as Record<string, unknown> | undefined) ?? {}
+      expand[fieldName] = rel
+      record.expand = expand
+    }
+  }
+
+  return records
+}
