@@ -16,6 +16,7 @@
   "dependencies": {
     "bcryptjs": "^3.0.3",
     "complete-js-utils": "^1.1.2",
+    "croner": "^10.0.1",
     "hono": "^4.12.29",
     "jsonwebtoken": "^9.0.2",
     "mssql": "^12.7.0",
