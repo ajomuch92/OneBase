@@ -22,7 +22,7 @@ export interface CollectionSchemaJSON {
 
 // ─── Adapter-facing types ───────────────────────────────────────────────────
 
-export type Dialect = 'sqlite' | 'mysql' | 'postgres'
+export type Dialect = 'sqlite' | 'mysql' | 'postgres' | 'mssql'
 
 export interface ColumnInfo {
   name:         string

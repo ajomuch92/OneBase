@@ -14,7 +14,7 @@ export interface DBConfig {
   ssl?: boolean
 }
 
-const DEFAULT_PORT: Record<'mysql' | 'postgres', number> = { mysql: 3306, postgres: 5432 }
+const DEFAULT_PORT: Record<'mysql' | 'postgres' | 'mssql', number> = { mysql: 3306, postgres: 5432, mssql: 1433 }
 
 /**
  * Reads ONEBASE_DB_* from the environment (Bun loads .env automatically).
@@ -28,8 +28,8 @@ export function loadDBConfig(cliPath?: string): DBConfig {
     return { client, path: process.env.ONEBASE_DB_PATH ?? cliPath ?? './onebase.db' }
   }
 
-  if (client !== 'mysql' && client !== 'postgres') {
-    throw new Error(`Unknown ONEBASE_DB_CLIENT "${client}". Expected "sqlite", "mysql", or "postgres".`)
+  if (client !== 'mysql' && client !== 'postgres' && client !== 'mssql') {
+    throw new Error(`Unknown ONEBASE_DB_CLIENT "${client}". Expected "sqlite", "mysql", "postgres", or "mssql".`)
   }
 
   return {
