@@ -14,5 +14,5 @@
       "onebase/*": ["./src/*"]
     }
   },
-  "include": ["src", "schema"]
+  "include": ["src", "schema", "jobs"]
 }
