@@ -158,6 +158,7 @@ OneBase migrate            # Sync schema to DB
 OneBase info               # List collections and plugins
 OneBase start --port 8080  # Custom port
 OneBase start --db /data/app.db  # Custom DB path
+OneBase start --jobs ./jobs       # Custom cron jobs directory (default ./jobs)
 ```
 
 ## Build single binary
@@ -199,6 +200,51 @@ ONEBASE_ADMIN_PASSWORD=change-me-please
 The binary needs a `schema/` directory next to it (or pointed to via
 `--schema`) to load your collections, and reads `.env` from its working
 directory the same way `bun dev` does.
+
+> **Known limitation:** collections and cron jobs defined in `schema/`/
+> `jobs/` don't currently register correctly when run from the *compiled*
+> binary (they work fine under `bun run`/`bun dev`) — those files import
+> `defineCollection`/`defineCronJob` via a relative path to `src/index.ts`,
+> which resolves to a separate module instance than the one baked into the
+> exe, so nothing they register is visible to the running server. Until
+> that's fixed, use `bun run src/cli/index.ts start` for anything that
+> relies on `schema/`/`jobs/` files. Also note that only SQLite is
+> currently usable from the compiled binary — `mysql`/`postgres`/`mssql`
+> as `ONEBASE_DB_CLIENT` crash on startup there (a `bun build --compile`
+> limitation with dynamically-loaded npm packages), though all four work
+> fine under `bun run`.
+
+## Cron jobs
+
+```typescript
+// jobs/cleanup-sessions.ts
+import { defineCronJob } from "../src/index.ts";
+
+defineCronJob({
+  name: "cleanup-expired-sessions",
+  schedule: "0 3 * * *", // every day at 03:00 UTC
+  run: async (ctx) => {
+    // ctx.store is a small persistent KV, handy for tracking a cursor
+    // between runs — same idea as the plugin store below.
+    console.log("running cleanup");
+  },
+});
+```
+
+Drop files in `jobs/` (or point `--jobs` at another directory) the same way
+you drop collection definitions in `schema/` — each one registers itself on
+import. Jobs run in-process on Bun's built-in scheduler
+([docs](https://bun.com/docs/runtime/cron)), so schedules are always
+interpreted in **UTC** and there's no per-job timezone override. See
+`jobs/cleanup-sessions.ts` for a real one: sessions are never deleted except
+on explicit logout, so this sweeps out ones that have already expired.
+
+Manage jobs from the admin API (admin-only):
+
+```
+GET  /admin/api/jobs             List jobs with next/previous run time
+POST /admin/api/jobs/:name/run   Trigger a job immediately, outside its schedule
+```
 
 ## Write a plugin
 
