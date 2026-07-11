@@ -68,6 +68,9 @@ export class MySQLAdapter implements DBAdapter {
   }
 
   fieldTypeToSQL(field: FieldDefinition): string {
+    // A `multiple: true` relation stores a JSON array of ids instead of a
+    // single one — needs the long-text column, not VARCHAR(36).
+    if (field.type === 'relation' && field.multiple) return TYPE_MAP.text
     return TYPE_MAP[field.type] ?? 'VARCHAR(255)'
   }
 

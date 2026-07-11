@@ -92,6 +92,9 @@ export class MSSQLAdapter implements DBAdapter {
   }
 
   fieldTypeToSQL(field: FieldDefinition): string {
+    // A `multiple: true` relation stores a JSON array of ids instead of a
+    // single one — needs NVARCHAR(MAX), not NVARCHAR(36).
+    if (field.type === 'relation' && field.multiple) return TYPE_MAP.text
     return TYPE_MAP[field.type] ?? 'NVARCHAR(255)'
   }
 

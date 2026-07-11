@@ -61,6 +61,10 @@ export class SQLiteAdapter implements DBAdapter {
   }
 
   fieldTypeToSQL(field: FieldDefinition): string {
+    // A `multiple: true` relation stores a JSON array of ids instead of a
+    // single one — needs the long-text column, not the (often shorter)
+    // single-id type.
+    if (field.type === 'relation' && field.multiple) return TYPE_MAP.text
     return TYPE_MAP[field.type] ?? 'TEXT'
   }
 
