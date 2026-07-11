@@ -17,14 +17,19 @@ const EYE_OFF = (
   </svg>
 )
 
-export function PasswordInput({ value, onInput, onKeyDown, placeholder, autoFocus, disabled, inputRef }: {
-  value:        string
-  onInput:      (e: any) => void
+export function PasswordInput({ value, onInput, name, onChange, onKeyDown, placeholder, autoFocus, disabled, inputRef }: {
+  // Omit value/onInput for an uncontrolled field (read the current value
+  // from inputRef on demand instead) — avoids re-rendering this input on
+  // every keystroke.
+  value?:       string
+  onInput?:     (e: any) => void
+  onChange?:    (e: any) => void
   onKeyDown?:   (e: any) => void
   placeholder?: string
   autoFocus?:   boolean
   disabled?:    boolean
   inputRef?:    any
+  name?:       string
 }) {
   const [visible, setVisible] = useState(false)
 
@@ -34,11 +39,17 @@ export function PasswordInput({ value, onInput, onKeyDown, placeholder, autoFocu
         class="ob-input"
         type={visible ? 'text' : 'password'}
         placeholder={placeholder}
-        value={value}
+        name={name}
+        // Only set `value` when this is meant to be controlled — hono/jsx
+        // has no React-style `defaultValue` concept, so passing `value`
+        // unconditionally (even as undefined) would force this into a
+        // controlled input with an empty string every render.
+        {...(value !== undefined ? { value } : {})}
         autoFocus={autoFocus}
         disabled={disabled}
         ref={inputRef}
         onInput={onInput}
+        onChange={onChange}
         onKeyDown={onKeyDown}
         style="padding-right:34px"
       />

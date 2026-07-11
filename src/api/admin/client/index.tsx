@@ -997,17 +997,26 @@ function Users() {
 // ─── Login page ───────────────────────────────────────────────────────────────
 
 function Login({ onLogin }: { onLogin: () => void }) {
-  const [email,    setEmail]    = useState('')
-  const [password, setPassword] = useState('')
-  const [error,    setError]    = useState('')
-  const [loading,  setLoading]  = useState(false)
-  const pwdRef = useRef<HTMLInputElement>(null)
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
 
-  async function handleLogin() {
+  async function handleSubmit(e: any) {
+    e.preventDefault()
+    setError('')
+
+    const form = e.target as HTMLFormElement
+    const data = new FormData(form)
+    const email    = String(data.get('email') ?? '')
+    const password = String(data.get('password') ?? '')
+
     if (!email || !password) { setError('Email and password are required'); return }
-    setLoading(true); setError('')
+
+    setLoading(true)
     try {
-      const res = await apiFetch<any>('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) })
+      const res = await apiFetch<any>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      })
       setToken(res.token)
       onLogin()
     } catch (e: any) { setError(e.message) }
@@ -1019,23 +1028,21 @@ function Login({ onLogin }: { onLogin: () => void }) {
       <div class="ob-login-box">
         <div class="ob-login-logo">⬡ OneBase</div>
         <div class="ob-login-sub">Sign in to your admin panel</div>
-        <div class="ob-field-row">
-          <label class="ob-label">Email</label>
-          <input class="ob-input" type="email" autoFocus placeholder="admin@example.com"
-            value={email} onInput={(e: any) => setEmail(e.target.value)}
-            onKeyDown={(e: any) => e.key === 'Enter' && pwdRef.current?.focus()} />
-        </div>
-        <div class="ob-field-row">
-          <label class="ob-label">Password</label>
-          <PasswordInput inputRef={pwdRef} placeholder="••••••••"
-            value={password} onInput={(e: any) => setPassword(e.target.value)}
-            onKeyDown={(e: any) => e.key === 'Enter' && handleLogin()} />
-        </div>
-        {error && <Err msg={error} />}
-        <button class="ob-btn ob-btn-primary" style="width:100%;justify-content:center;margin-top:8px"
-          onClick={handleLogin} disabled={loading}>
-          {loading ? 'Signing in…' : 'Sign in'}
-        </button>
+        <form onSubmit={handleSubmit}>
+          <div class="ob-field-row">
+            <label class="ob-label">Email</label>
+            <input class="ob-input" type="email" name="email" autoFocus placeholder="admin@example.com" />
+          </div>
+          <div class="ob-field-row">
+            <label class="ob-label">Password</label>
+            <PasswordInput name="password" placeholder="••••••••" />
+          </div>
+          {error && <div class="ob-error">{error}</div>}
+          <button type="submit" class="ob-btn ob-btn-primary" style="width:100%;justify-content:center;margin-top:8px"
+            disabled={loading}>
+            {loading ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
       </div>
     </div>
   )
