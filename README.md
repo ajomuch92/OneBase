@@ -148,8 +148,41 @@ OneBase start --db /data/app.db  # Custom DB path
 
 ```bash
 bun run build
-# → ./OneBase  (single executable, no runtime needed)
+# → ./onebase(.exe)  (single executable, no runtime needed)
 ```
+
+This runs two steps: `build:admin` pre-compiles the admin UI into
+`src/api/admin/client.generated.txt` (embedded into the binary — the admin
+panel can't be bundled at runtime from inside a compiled exe), then `bun
+build --compile` produces the executable. Always run `bun run build` (not
+the raw `bun build --compile ...` command) so both steps happen.
+
+### Running the built binary
+
+Run it from a terminal, not by double-clicking it in a file explorer —
+on Windows especially, a console app opened that way spawns a window that
+closes immediately if it exits or errors, so it looks like "nothing
+happens" even when something actually went wrong.
+
+```bash
+./onebase start              # from the directory you want the DB/schema/uploads to live in
+./onebase start --port 8080
+./onebase start --db /data/app.db
+```
+
+On the very first run (no users in the DB yet), OneBase pauses to
+interactively prompt for an admin email/password — another reason a
+terminal is required. To skip the prompt (servers, CI, containers), set
+these env vars before starting:
+
+```bash
+ONEBASE_ADMIN_EMAIL=admin@example.com
+ONEBASE_ADMIN_PASSWORD=change-me-please
+```
+
+The binary needs a `schema/` directory next to it (or pointed to via
+`--schema`) to load your collections, and reads `.env` from its working
+directory the same way `bun dev` does.
 
 ## Write a plugin
 
