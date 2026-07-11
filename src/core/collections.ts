@@ -113,6 +113,46 @@ async function applyDiff(tableName: string, desired: CollectionSchemaJSON) {
   }
 }
 
+// ─── Multi-relations ────────────────────────────────────────────────────────
+// A `relation` field with `multiple: true` stores a JSON-encoded array of
+// ids in a single (long-text) column — same approach PocketBase uses, no
+// separate join table. `posts.tags` (→ the `tags` collection) is the
+// worked example in schema/posts.ts.
+
+// Registry entries only cover code-defined collections — admin-UI-created
+// ones only ever exist in `_ob_collections`, so fall back to that stored
+// schema to find a collection's field definitions either way.
+async function getFieldsForCollection(name: string): Promise<Record<string, FieldDefinition>> {
+  const def = registry.get(name)
+  if (def) return def.fields
+  const row = await getDB().get<{ schema: string }>('SELECT schema FROM _ob_collections WHERE name = ?', [name])
+  return row ? (JSON.parse(row.schema) as CollectionSchemaJSON).fields : {}
+}
+
+function isMultiRelation(field: FieldDefinition | undefined): boolean {
+  return !!field && field.type === 'relation' && !!field.multiple
+}
+
+// Arrays going *into* the DB get JSON-encoded — only touches fields that
+// are actually present in `row` (partial updates shouldn't touch the rest).
+function serializeRow(fields: Record<string, FieldDefinition>, row: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(row)) {
+    out[k] = (isMultiRelation(fields[k]) && Array.isArray(v)) ? JSON.stringify(v) : v
+  }
+  return out
+}
+
+// ...and decoded back to arrays coming *out*.
+function deserializeRecord(fields: Record<string, FieldDefinition>, record: CollectionRecord): CollectionRecord {
+  for (const [k, field] of Object.entries(fields)) {
+    if (isMultiRelation(field) && typeof record[k] === 'string') {
+      try { record[k] = JSON.parse(record[k] as string) } catch { record[k] = [] }
+    }
+  }
+  return record
+}
+
 // ─── CRUD engine ─────────────────────────────────────────────────────────────
 
 export class CollectionService {
@@ -142,7 +182,9 @@ export class CollectionService {
     if (where.length) q += ` WHERE ${where.join(' AND ')}`
     q += ` ORDER BY ${sort} ${order.toUpperCase()} LIMIT ? OFFSET ?`
     params.push(limit, offset)
-    return this.db.query<CollectionRecord>(q, params)
+    const rows   = await this.db.query<CollectionRecord>(q, params)
+    const fields = await getFieldsForCollection(this.name)
+    return rows.map(r => deserializeRecord(fields, r))
   }
 
   async count(filter: Record<string, unknown> = {}): Promise<number> {
@@ -157,18 +199,22 @@ export class CollectionService {
 
   async getById(id: string): Promise<CollectionRecord | null> {
     await this.assertExists()
-    return this.db.get<CollectionRecord>(`SELECT * FROM ${this.name} WHERE id = ?`, [id])
+    const record = await this.db.get<CollectionRecord>(`SELECT * FROM ${this.name} WHERE id = ?`, [id])
+    if (!record) return null
+    return deserializeRecord(await getFieldsForCollection(this.name), record)
   }
 
   async create(data: Record<string, unknown>, ctx: HookContext): Promise<CollectionRecord> {
     await this.assertExists()
     let payload = this.def?.hooks?.beforeCreate ? await this.def.hooks.beforeCreate({ ...data }, ctx) : { ...data }
-    const id    = crypto.randomUUID()
-    const now   = new Date().toISOString()
-    const row   = { ...payload, id, created_at: now, updated_at: now }
-    const cols  = Object.keys(row).join(', ')
-    const ph    = Object.keys(row).map(() => '?').join(', ')
-    await this.db.run(`INSERT INTO ${this.name} (${cols}) VALUES (${ph})`, Object.values(row))
+    const id     = crypto.randomUUID()
+    const now    = new Date().toISOString()
+    const row    = { ...payload, id, created_at: now, updated_at: now }
+    const fields = await getFieldsForCollection(this.name)
+    const dbRow  = serializeRow(fields, row)
+    const cols   = Object.keys(dbRow).join(', ')
+    const ph     = Object.keys(dbRow).map(() => '?').join(', ')
+    await this.db.run(`INSERT INTO ${this.name} (${cols}) VALUES (${ph})`, Object.values(dbRow))
     const record = (await this.getById(id))!
     if (this.def?.hooks?.afterCreate) await this.def.hooks.afterCreate(record, ctx)
     return record
@@ -177,9 +223,11 @@ export class CollectionService {
   async update(id: string, data: Record<string, unknown>, ctx: HookContext): Promise<CollectionRecord> {
     await this.assertExists()
     let payload = this.def?.hooks?.beforeUpdate ? await this.def.hooks.beforeUpdate(id, { ...data }, ctx) : { ...data }
-    const row   = { ...payload, updated_at: new Date().toISOString() }
-    const set   = Object.keys(row).map(k => `${k} = ?`).join(', ')
-    await this.db.run(`UPDATE ${this.name} SET ${set} WHERE id = ?`, [...Object.values(row), id])
+    const row    = { ...payload, updated_at: new Date().toISOString() }
+    const fields = await getFieldsForCollection(this.name)
+    const dbRow  = serializeRow(fields, row)
+    const set    = Object.keys(dbRow).map(k => `${k} = ?`).join(', ')
+    await this.db.run(`UPDATE ${this.name} SET ${set} WHERE id = ?`, [...Object.values(dbRow), id])
     const record = (await this.getById(id))!
     if (this.def?.hooks?.afterUpdate) await this.def.hooks.afterUpdate(record, ctx)
     return record
@@ -196,16 +244,6 @@ export class CollectionService {
 export function getCollection(name: string) { return new CollectionService(name) }
 
 // ─── Relation expand ──────────────────────────────────────────────────────────
-
-// Registry entries only cover code-defined collections — admin-UI-created
-// ones only ever exist in `_ob_collections`, so fall back to that stored
-// schema to find a collection's field definitions either way.
-async function getFieldsForCollection(name: string): Promise<Record<string, FieldDefinition>> {
-  const def = registry.get(name)
-  if (def) return def.fields
-  const row = await getDB().get<{ schema: string }>('SELECT schema FROM _ob_collections WHERE name = ?', [name])
-  return row ? (JSON.parse(row.schema) as CollectionSchemaJSON).fields : {}
-}
 
 /**
  * PocketBase-style `expand` — resolves `relation` fields into their full
@@ -251,8 +289,14 @@ export async function expandRecords(
     // whole request over one stale reference.
     if (!isUsers && !(await db.tableExists(field.collection))) continue
 
+    // A `multiple: true` relation's value is an array of ids (already
+    // decoded by CollectionService) rather than a single one.
     const ids = [...new Set(
-      records.map(r => r[fieldName]).filter((v): v is string => typeof v === 'string' && v !== ''),
+      records.flatMap(r => {
+        const v = r[fieldName]
+        if (Array.isArray(v)) return v.filter((x): x is string => typeof x === 'string' && x !== '')
+        return typeof v === 'string' && v !== '' ? [v] : []
+      }),
     )]
     if (!ids.length) continue
 
@@ -267,7 +311,7 @@ export async function expandRecords(
     const readable: CollectionRecord[] = []
     for (const rel of related) {
       try {
-        await permissionEngine.assert(field.collection, 'read', user, rel)
+        await permissionEngine.assert(field.collection, 'read', user, rel, undefined, isUsers ? 'public' : 'auth')
         readable.push(rel)
       } catch { /* not readable — leave unexpanded */ }
     }
@@ -279,12 +323,20 @@ export async function expandRecords(
 
     const byId = new Map(related.map(r => [r.id, r]))
     for (const record of records) {
-      const relId = record[fieldName]
-      if (typeof relId !== 'string') continue
-      const rel = byId.get(relId)
-      if (!rel) continue
+      const relVal = record[fieldName]
+      let expanded: CollectionRecord | CollectionRecord[] | undefined
+      if (Array.isArray(relVal)) {
+        const resolved = relVal
+          .filter((x): x is string => typeof x === 'string')
+          .map(relId => byId.get(relId))
+          .filter((r): r is CollectionRecord => !!r)
+        if (resolved.length) expanded = resolved
+      } else if (typeof relVal === 'string') {
+        expanded = byId.get(relVal)
+      }
+      if (!expanded) continue
       const expand = (record.expand as Record<string, unknown> | undefined) ?? {}
-      expand[fieldName] = rel
+      expand[fieldName] = expanded
       record.expand = expand
     }
   }
