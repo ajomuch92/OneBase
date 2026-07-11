@@ -8,7 +8,8 @@
   },
   "scripts": {
     "dev": "bun run --watch src/cli/index.ts start",
-    "build": "bun build src/cli/index.ts --compile --outfile onebase",
+    "build:admin": "bun build src/api/admin/client/index.tsx --outfile src/api/admin/client.generated.txt --target browser --define process.env.NODE_ENV='\"production\"'",
+    "build": "bun run build:admin && bun build src/cli/index.ts --compile --outfile onebase",
     "generate": "bun run src/cli/index.ts generate",
     "migrate": "bun run src/cli/index.ts migrate"
   },
