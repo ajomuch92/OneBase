@@ -1059,14 +1059,21 @@ function pathToPage(pathname: string): Page {
 }
 
 function App() {
-  const [authed, setAuthed]     = useState(!!_token)
+  const [authed]                = useState(!!_token)
   const [pathname, navigate]    = useLocation()
 
-  if (!authed) return <Login onLogin={() => setAuthed(true)} />
+  // Full reload rather than flipping `authed` in place — hono/jsx/dom
+  // doesn't reliably patch the DOM when a re-render swaps this large a
+  // subtree (Login form <-> the whole admin layout), so the screen would
+  // stay stuck on the old view until something else (e.g. a manual
+  // refresh) forced a repaint. A reload always renders the right screen
+  // from a clean mount, since `authed` is read fresh from `_token` above.
+  if (!authed) return <Login onLogin={() => window.location.reload()} />
 
   async function handleLogout() {
     try { await apiFetch('/api/auth/logout', { method: 'POST' }) } catch {}
-    setToken(null); setAuthed(false)
+    setToken(null)
+    window.location.reload()
   }
 
   const page = pathToPage(pathname)
