@@ -28,28 +28,38 @@ export async function prebuildAdminBundle() {
   const entrypoint = join(import.meta.dir, 'client/index.tsx')
   console.log('[admin] Building UI bundle...')
 
-  const result = await Bun.build({
-    entrypoints: [entrypoint],
-    target:      'browser',
-    minify:      false,
-    define: {
-      'process.env.NODE_ENV': '"development"',
-    },
-    // Tell Bun to use hono/jsx/dom as the JSX runtime for the client bundle
-    // so we don't need react or react-dom installed
-    external: [],
-  })
+  try {
+    const result = await Bun.build({
+      entrypoints: [entrypoint],
+      target:      'browser',
+      minify:      false,
+      define: {
+        'process.env.NODE_ENV': '"development"',
+      },
+      // Tell Bun to use hono/jsx/dom as the JSX runtime for the client bundle
+      // so we don't need react or react-dom installed
+      external: [],
+    })
 
-  if (!result.success) {
-    const msgs = result.logs.map(l => l.message).join('\n')
-    console.error('[admin] Bundle failed:\n' + msgs)
-    // Serve an error script so the browser shows something useful
-    _bundle = `console.error("[OneBase] Admin UI bundle failed to compile. Check server logs.\\n${msgs.replace(/"/g, "'")}")`
-    return
+    if (!result.success) throw new Error(result.logs.map(l => l.message).join('\n'))
+
+    _bundle = await result.outputs[0].text()
+    console.log(`[admin] UI bundle ready (${(_bundle.length / 1024).toFixed(1)} KB)`)
+  } catch (buildErr) {
+    // `Bun.build()` reads real files off disk, which don't exist inside a
+    // `bun build --compile` binary (client/ is embedded as bundled module
+    // code, not raw files). Fall back to the bundle produced ahead of time
+    // by `bun run build:admin` and embedded into the exe at compile time.
+    try {
+      const generated = (await import('./client.generated.txt', { with: { type: 'text' } })).default as string
+      _bundle = generated
+      console.log(`[admin] UI bundle loaded from embedded build (${(_bundle.length / 1024).toFixed(1)} KB)`)
+    } catch (fallbackErr) {
+      console.error('[admin] Bundle failed:\n' + String(buildErr))
+      console.error('[admin] Fallback also failed:\n' + String(fallbackErr))
+      _bundle = `console.error("[OneBase] Admin UI bundle failed to compile. Check server logs.")`
+    }
   }
-
-  _bundle = await result.outputs[0].text()
-  console.log(`[admin] UI bundle ready (${(_bundle.length / 1024).toFixed(1)} KB)`)
 }
 
 // ─── Shell HTML ───────────────────────────────────────────────────────────────

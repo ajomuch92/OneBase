@@ -14,7 +14,7 @@ export function getDB(): DBAdapter {
 }
 
 export async function initDB(config: DBConfig): Promise<DBAdapter> {
-  const adapter = createAdapter(config)
+  const adapter = await createAdapter(config)
   await adapter.connect()
   await adapter.bootstrapSystemTables()
   _db = adapter
