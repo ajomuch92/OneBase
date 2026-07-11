@@ -99,7 +99,8 @@ function registerCollectionRoutes(api: Hono) {
       [c.req.param('id')],
     )
     if (!user) return c.json({ error: 'Not found' }, 404)
-    await permissionEngine.assert('users', 'read', auth?.user ?? null, user as any)
+    // Defaults to public — see the comment on PermissionEngine.assert.
+    await permissionEngine.assert('users', 'read', auth?.user ?? null, user as any, undefined, 'public')
     return c.json(user)
   })
 

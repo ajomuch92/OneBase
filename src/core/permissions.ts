@@ -19,9 +19,19 @@ class PermissionEngine {
     this.rules.set(collection, perms)
   }
 
+  hasRule(collection: string): boolean {
+    return this.rules.has(collection)
+  }
+
+  // `fallback` lets a caller pick a different implicit default than 'auth'
+  // for collections nobody has registered rules for — used for the built-in
+  // `users` collection, whose `read` action defaults to 'public' (it's
+  // already restricted to a handful of non-sensitive columns) so relation
+  // `expand` and lookups work out of the box for anonymous requests too,
+  // while remaining fully overridable via `definePermissions('users', ...)`.
   async assert(collection: string, action: Action, user: AuthUser | null,
-    record?: CollectionRecord, data?: Record<string, unknown>) {
-    const rule = this.rules.get(collection)?.[action] ?? 'auth'
+    record?: CollectionRecord, data?: Record<string, unknown>, fallback: PermissionRule = 'auth') {
+    const rule = this.rules.get(collection)?.[action] ?? fallback
     const allowed = await this.evaluate(rule, { user, record, data, action })
     if (!allowed) throw new Error(user ? 'Forbidden' : 'Unauthorized')
   }
