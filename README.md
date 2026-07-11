@@ -16,8 +16,9 @@ collections, records, indexes, and users from there.
 
 ## Database
 
-OneBase supports SQLite (default), MySQL, and PostgreSQL. Configure the
-engine via environment variables — copy `.env.example` to `.env` and set:
+OneBase supports SQLite (default), MySQL, PostgreSQL, and MS SQL Server.
+Configure the engine via environment variables — copy `.env.example` to
+`.env` and set:
 
 ```bash
 # SQLite (default) — nothing else required
@@ -33,7 +34,22 @@ ONEBASE_DB_URL=mysql://user:password@localhost:3306/onebase
 ONEBASE_DB_CLIENT=postgres
 ONEBASE_DB_URL=postgres://user:password@localhost:5432/onebase
 # ...or ONEBASE_DB_HOST/PORT/USER/PASSWORD/NAME/SSL individually
+
+# MS SQL Server
+ONEBASE_DB_CLIENT=mssql
+ONEBASE_DB_URL=mssql://user:password@localhost:1433/onebase
+# ...or ONEBASE_DB_HOST/PORT/USER/PASSWORD/NAME/SSL individually
 ```
+
+Each database driver (`mysql2`, `pg`, `mssql`) is only loaded if you
+actually select that engine — picking `sqlite` never touches the others,
+including in the compiled single-binary build.
+
+> MS SQL Server note: a nonclustered index key can't exceed 900 bytes, so
+> the `_ob_sessions.token` and `_ob_migrations.name` columns are capped at
+> `NVARCHAR(450)` under the hood (vs. longer limits on the other engines)
+> to stay unique-indexable. Not something you need to configure — just
+> worth knowing if you're inspecting the schema directly.
 
 Bun loads `.env` automatically — no extra package needed. See
 `.env.example` for the full list of variables.
@@ -212,7 +228,7 @@ OneBase/
 ├── src/
 │   ├── core/
 │   │   ├── db.ts            DB adapter singleton, system tables
-│   │   ├── drivers/         SQLite / MySQL / PostgreSQL adapters
+│   │   ├── drivers/         SQLite / MySQL / PostgreSQL / MS SQL adapters
 │   │   ├── collections.ts   Dynamic CRUD engine
 │   │   ├── auth.ts          JWT + sessions
 │   │   ├── router.ts        Hono + auto-generated routes
@@ -236,14 +252,14 @@ OneBase/
 
 - **Runtime**: [Bun](https://bun.sh) — fast runtime, SQLite built-in, single binary output
 - **HTTP**: [Hono](https://hono.dev) — lightweight, fast, TypeScript-first
-- **DB**: pluggable adapters (SQLite via `bun:sqlite`, MySQL via `mysql2`, PostgreSQL via `pg`) over raw SQL
+- **DB**: pluggable adapters (SQLite via `bun:sqlite`, MySQL via `mysql2`, PostgreSQL via `pg`, MS SQL Server via `mssql`) over raw SQL
 - **Auth**: JWT via `jsonwebtoken` + bcrypt password hashing
 
 ## Roadmap
 
 - [x] Schema diffing + ALTER TABLE migrations
 - [x] File uploads
-- [x] MySQL / PostgreSQL adapters
+- [x] MySQL / PostgreSQL / MS SQL adapters
 - [ ] OAuth2 providers
 - [ ] Row-level permissions
 - [ ] Plugin marketplace
