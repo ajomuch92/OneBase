@@ -9,6 +9,10 @@ export const posts = defineCollection({
     coverImage: { type: 'file' },
     published:  { type: 'boolean', default: false },
     authorId:   { type: 'relation', collection: 'users', required: true },
+    // `multiple: true` — a post can have many tags. Stored as a JSON array
+    // of tag ids on the record; resolve the full tag records with
+    // `?expand=tagIds`.
+    tagIds:     { type: 'relation', collection: 'tags', multiple: true },
   },
   permissions: {
     list:   'public',
