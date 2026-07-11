@@ -7,6 +7,7 @@ import {
 import { realtimeService } from '../../core/realtime.ts'
 import { getDB } from '../../core/db.ts'
 import type { CollectionSchemaJSON, DBAdapter } from '../../core/db.ts'
+import { getCronStatus, triggerCronJob } from '../../core/cron.ts'
 import { join } from 'path'
 
 async function countTable(db: DBAdapter, name: string): Promise<number> {
@@ -323,6 +324,25 @@ adminRouter.delete('/api/users/:id', async (c) => {
 
   await db.run('DELETE FROM _ob_users WHERE id = ?', [c.req.param('id')])
   return c.json({ ok: true })
+})
+
+// ─── Cron jobs ────────────────────────────────────────────────────────────────
+
+adminRouter.get('/api/jobs', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  return c.json(getCronStatus())
+})
+
+adminRouter.post('/api/jobs/:name/run', async (c) => {
+  const auth = await extractAuth(c.req.raw)
+  requireAdmin(auth)
+  try {
+    await triggerCronJob(c.req.param('name'))
+    return c.json({ ok: true })
+  } catch (e: any) {
+    return c.json({ error: e.message }, 404)
+  }
 })
 
 // ─── SPA fallback ─────────────────────────────────────────────────────────────
