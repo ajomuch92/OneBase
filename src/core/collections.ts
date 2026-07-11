@@ -307,6 +307,14 @@ export async function expandRecords(
         : `SELECT * FROM ${field.collection} WHERE id IN (${placeholders})`,
       ids,
     )
+    // This is a raw query, not a CollectionService read, so any of the
+    // related collection's own `multiple: true` relations haven't been
+    // decoded from their JSON-string column form yet — do that now so both
+    // the attached `expand` payload and any nested expand below see arrays.
+    if (!isUsers) {
+      const relatedFields = await getFieldsForCollection(field.collection)
+      related = related.map(r => deserializeRecord(relatedFields, r))
+    }
 
     const readable: CollectionRecord[] = []
     for (const rel of related) {
