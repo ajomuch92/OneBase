@@ -32,9 +32,6 @@ export const authService = {
 
   async login(email: string, password: string): Promise<AuthTokens> {
     const db   = getDB()
-    console.log({ email, password })
-    console.log('JWT_SECRET:', JWT_SECRET)
-    console.log(db)
     const user = await db.get<any>('SELECT * FROM _ob_users WHERE email = ?', [email.toLowerCase()])
     if (!user) throw new Error('Invalid credentials')
     if (!await compare(password, user.password_hash)) throw new Error('Invalid credentials')

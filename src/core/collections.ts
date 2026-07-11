@@ -243,10 +243,13 @@ export async function expandRecords(
   for (const [fieldName, nestedPaths] of byRoot) {
     const field = fields[fieldName]
     if (!field || field.type !== 'relation' || !field.collection) continue
+    // `users` is the `_ob_users` system table, not a real dynamic
+    // collection — special-cased the same way the `/api/users` route is.
+    const isUsers = field.collection === 'users'
     // A relation field can name a target collection that was renamed/
     // deleted since the field was defined — skip rather than 500 the
     // whole request over one stale reference.
-    if (!(await db.tableExists(field.collection))) continue
+    if (!isUsers && !(await db.tableExists(field.collection))) continue
 
     const ids = [...new Set(
       records.map(r => r[fieldName]).filter((v): v is string => typeof v === 'string' && v !== ''),
@@ -255,7 +258,10 @@ export async function expandRecords(
 
     const placeholders = ids.map(() => '?').join(', ')
     let related = await db.query<CollectionRecord>(
-      `SELECT * FROM ${field.collection} WHERE id IN (${placeholders})`, ids,
+      isUsers
+        ? `SELECT id, email, role, verified, created_at FROM _ob_users WHERE id IN (${placeholders})`
+        : `SELECT * FROM ${field.collection} WHERE id IN (${placeholders})`,
+      ids,
     )
 
     const readable: CollectionRecord[] = []

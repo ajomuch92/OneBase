@@ -4,6 +4,7 @@ import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { extractAuth, requireAuth } from './auth.ts'
 import { getCollection, listStoredCollections, expandRecords } from './collections.ts'
+import { getDB } from './db.ts'
 import { realtimeService } from './realtime.ts'
 import { permissionEngine } from './permissions.ts'
 import { uploadService } from './uploads.ts'
@@ -68,6 +69,40 @@ export function createApp() {
 }
 
 function registerCollectionRoutes(api: Hono) {
+  // `users` isn't a dynamic collection (it's the `_ob_users` system table,
+  // otherwise only reachable via the admin-only `/admin/api/users`), but
+  // `relation` fields routinely point at it (e.g. an "author" field) —
+  // without this, the admin UI's relation picker and `expand` both fail
+  // to resolve it. Read-only, and only ever the safe columns (no
+  // password_hash). Registered before `/:collection` so the static path
+  // wins the match.
+  api.get('/users', async (c) => {
+    const auth = await extractAuth(c.req.raw)
+    await permissionEngine.assert('users', 'list', auth?.user ?? null)
+    const qs     = c.req.query()
+    const limit  = Math.min(Number(qs.limit ?? 50), 500)
+    const offset = Number(qs.offset ?? 0)
+    const db     = getDB()
+    const items  = await db.query(
+      'SELECT id, email, role, verified, created_at FROM _ob_users ORDER BY created_at DESC LIMIT ? OFFSET ?',
+      [limit, offset],
+    )
+    const totalRow = await db.get<{ c: number }>('SELECT COUNT(*) as c FROM _ob_users')
+    return c.json({ items, total: totalRow?.c ?? 0, limit, offset })
+  })
+
+  api.get('/users/:id', async (c) => {
+    const auth = await extractAuth(c.req.raw)
+    const db   = getDB()
+    const user = await db.get<Record<string, unknown>>(
+      'SELECT id, email, role, verified, created_at FROM _ob_users WHERE id = ?',
+      [c.req.param('id')],
+    )
+    if (!user) return c.json({ error: 'Not found' }, 404)
+    await permissionEngine.assert('users', 'read', auth?.user ?? null, user as any)
+    return c.json(user)
+  })
+
   api.get('/:collection', async (c) => {
     const name = c.req.param('collection')
     const auth = await extractAuth(c.req.raw)
