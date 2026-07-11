@@ -15,7 +15,9 @@ function fieldToTSType(field: FieldDefinition): string {
     relation: "string",
     file: "string",
   };
-  return typeMap[field.type] ?? "unknown";
+  const base = typeMap[field.type] ?? "unknown";
+  // A `multiple: true` relation stores an array of ids, not one.
+  return field.type === "relation" && field.multiple ? `${base}[]` : base;
 }
 
 // ─── Generate SDK source ───────────────────────────────────────────────────────
