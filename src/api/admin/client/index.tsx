@@ -234,10 +234,11 @@ function Dashboard() {
 
 // ─── Collection editor modal ──────────────────────────────────────────────────
 
-interface FieldDef { name: string; type: string; required: boolean; unique: boolean }
+interface FieldDef { name: string; type: string; required: boolean; unique: boolean; collection?: string; multiple?: boolean }
 
-function CollectionModal({ initial, onClose, onSave }: {
+function CollectionModal({ initial, collectionNames = [], onClose, onSave }: {
   initial?: { name: string; fields: Record<string, any> }
+  collectionNames?: string[]
   onClose: () => void
   onSave:  () => void
 }) {
@@ -245,7 +246,10 @@ function CollectionModal({ initial, onClose, onSave }: {
   const [name,   setName]   = useState(initial?.name ?? '')
   const [fields, setFields] = useState<FieldDef[]>(
     initial
-      ? Object.entries(initial.fields).map(([n, f]) => ({ name: n, type: f.type, required: !!f.required, unique: !!f.unique }))
+      ? Object.entries(initial.fields).map(([n, f]) => ({
+          name: n, type: f.type, required: !!f.required, unique: !!f.unique,
+          collection: f.collection, multiple: !!f.multiple,
+        }))
       : [{ name: '', type: 'string', required: false, unique: false }]
   )
   const [error,  setError]  = useState('')
@@ -260,11 +264,17 @@ function CollectionModal({ initial, onClose, onSave }: {
     if (!name.trim()) { setError('Collection name is required'); return }
     if (!/^[a-z][a-z0-9_]*$/.test(name)) { setError('Lowercase letters, numbers and underscores only'); return }
     if (fields.some(f => !f.name.trim())) { setError('All fields must have a name'); return }
+    if (fields.some(f => f.type === 'relation' && !f.collection)) { setError('Pick a target collection for every relation field'); return }
 
     const schema = {
       fields: Object.fromEntries(
         fields.filter(f => f.name.trim()).map(f => [
-          f.name, { type: f.type, ...(f.required ? { required: true } : {}), ...(f.unique ? { unique: true } : {}) }
+          f.name, {
+            type: f.type,
+            ...(f.required ? { required: true } : {}),
+            ...(f.unique ? { unique: true } : {}),
+            ...(f.type === 'relation' ? { collection: f.collection, multiple: !!f.multiple } : {}),
+          },
         ])
       )
     }
@@ -294,27 +304,50 @@ function CollectionModal({ initial, onClose, onSave }: {
       <div class="ob-section-title" style="margin-top:16px">Fields</div>
 
       {fields.map((field, i) => (
-        <div class="ob-field-builder" key={i}>
-          <div>
-            <label class="ob-label">Name</label>
-            <input class="ob-input" placeholder="field_name" value={field.name}
-              onInput={(e: any) => updateField(i, 'name', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
+        <div key={i} style="margin-bottom:8px">
+          <div class="ob-field-builder" style="margin-bottom:0">
+            <div>
+              <label class="ob-label">Name</label>
+              <input class="ob-input" placeholder="field_name" value={field.name}
+                onInput={(e: any) => updateField(i, 'name', e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))} />
+            </div>
+            <div>
+              <label class="ob-label">Type</label>
+              <select class="ob-select" value={field.type}
+                onChange={(e: any) => updateField(i, 'type', e.target.value)}>
+                {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label class="ob-label">Req</label>
+              <input type="checkbox" checked={field.required}
+                onChange={(e: any) => updateField(i, 'required', e.target.checked)} />
+            </div>
+            <button class="ob-btn ob-btn-danger ob-btn-sm"
+              onClick={() => setFields(f => f.filter((_, j) => j !== i))}
+              disabled={fields.length === 1}>✕</button>
           </div>
-          <div>
-            <label class="ob-label">Type</label>
-            <select class="ob-select" value={field.type}
-              onChange={(e: any) => updateField(i, 'type', e.target.value)}>
-              {FIELD_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
-          </div>
-          <div>
-            <label class="ob-label">Req</label>
-            <input type="checkbox" checked={field.required}
-              onChange={(e: any) => updateField(i, 'required', e.target.checked)} />
-          </div>
-          <button class="ob-btn ob-btn-danger ob-btn-sm"
-            onClick={() => setFields(f => f.filter((_, j) => j !== i))}
-            disabled={fields.length === 1}>✕</button>
+
+          {field.type === 'relation' && (
+            <div style="display:flex;gap:10px;align-items:end;padding:10px 12px;
+              border:1px solid var(--border);border-top:none;border-radius:0 0 var(--r) var(--r)">
+              <div style="flex:1">
+                <label class="ob-label">Target collection</label>
+                <select class="ob-select" value={field.collection ?? ''}
+                  onChange={(e: any) => updateField(i, 'collection', e.target.value)}>
+                  <option value="">— select —</option>
+                  {['users', ...collectionNames.filter(n => n !== 'users')].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;padding-bottom:8px">
+                <input type="checkbox" checked={!!field.multiple}
+                  onChange={(e: any) => updateField(i, 'multiple', e.target.checked)} />
+                <label style="font-size:12px;color:var(--text)">Multiple (post has many tags, etc.)</label>
+              </div>
+            </div>
+          )}
         </div>
       ))}
 
@@ -413,7 +446,32 @@ function RecordField({ fieldKey, field, value, onChange }: {
     </div>
   )
 
-  // ── relation (select populated with related records) ──
+  // ── relation, multiple (checkbox tag picker — one record can hold many ids) ──
+  if (field.type === 'relation' && field.multiple) {
+    const options  = useRelationOptions(field.collection)
+    const selected: string[] = Array.isArray(value) ? value : []
+    function toggle(id: string) {
+      onChange(selected.includes(id) ? selected.filter(v => v !== id) : [...selected, id])
+    }
+    return (
+      <div class="ob-field-row" key={fieldKey}>
+        <label class="ob-label">{label}{req} <span style="color:var(--muted)">→ {field.collection} (multiple)</span></label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px">
+          {options.length === 0 && <span style="color:var(--muted);font-size:12px">No records yet</span>}
+          {options.map(o => (
+            <label key={o.id} style={`display:flex;align-items:center;gap:5px;padding:5px 9px;border-radius:99px;
+              font-size:12px;cursor:pointer;border:1px solid var(--border);
+              ${selected.includes(o.id) ? 'background:rgba(99,102,241,.15);border-color:var(--accent)' : ''}`}>
+              <input type="checkbox" checked={selected.includes(o.id)} onChange={() => toggle(o.id)} style="margin:0" />
+              {o.label}
+            </label>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // ── relation, single (select populated with related records) ──
   if (field.type === 'relation') {
     const options = useRelationOptions(field.collection)
     return (
@@ -478,7 +536,9 @@ function RecordModal({ collection, fields, record, onClose, onSave }: {
 }) {
   const isEdit = !!record
   const [data,   setData]   = useState<Record<string, any>>(
-    record ? { ...record } : Object.fromEntries(Object.keys(fields).map(k => [k, '']))
+    record ? { ...record } : Object.fromEntries(
+      Object.entries(fields).map(([k, f]) => [k, f.type === 'relation' && f.multiple ? [] : ''])
+    )
   )
   const [error,  setError]  = useState('')
   const [saving, setSaving] = useState(false)
@@ -850,8 +910,8 @@ function Collections({ pathname, navigate }: { pathname: string; navigate: (to: 
         </div>
       </div>
 
-      {showCreate && <CollectionModal onClose={() => setShowCreate(false)} onSave={refetch} />}
-      {editTarget && <CollectionModal initial={editTarget} onClose={() => setEditTarget(null)} onSave={refetch} />}
+      {showCreate && <CollectionModal collectionNames={cols?.map(c => c.name) ?? []} onClose={() => setShowCreate(false)} onSave={refetch} />}
+      {editTarget && <CollectionModal initial={editTarget} collectionNames={cols?.map(c => c.name) ?? []} onClose={() => setEditTarget(null)} onSave={refetch} />}
     </div>
   )
 }
